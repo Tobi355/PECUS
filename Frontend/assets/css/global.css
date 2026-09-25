@@ -1,0 +1,93 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: var(--font-fallback);
+    background-color: var(--background);
+    color: var(--gray-900);
+    line-height: 1.6;
+}
+
+h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-primary);
+    font-weight: 500;
+    line-height: 1.2;
+}
+
+p {
+    margin-bottom: 1rem;
+}
+
+/* Lucide icons scale with the font-size of their container (like the old
+   icon-font approach), so existing font-size-based sizing keeps working. */
+.lucide {
+    width: 1em;
+    height: 1em;
+    stroke-width: 2px;
+    vertical-align: -0.15em;
+    flex-shrink: 0;
+}
+
+.icon-sm { font-size: 1rem; }
+.icon { font-size: 1.25rem; }
+.icon-lg { font-size: 2rem; }
+.icon-xl { font-size: 2.5rem; }
+
+/* Secondary typeface (Souvenir Std Light Italic) is a brand accent —
+   use only for taglines/subtitles, never for functional UI text. */
+.text-accent {
+    font-family: var(--font-secondary);
+}
+
+/* Explicit reinforcement for Bootstrap controls whose "checked/active" color
+   isn't wired to --bs-primary internally, so nothing renders Bootstrap blue. */
+.form-check-input:checked {
+    background-color: var(--primary);
+    border-color: var(--primary);
+}
+
+.form-check-input:focus,
+.form-control:focus,
+.form-select:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 0.2rem rgba(42, 97, 81, 0.2);
+}
+
+.progress-bar {
+    background-color: var(--primary);
+}
+
+a {
+    color: var(--primary);
+    text-decoration: none;
+    transition: var(--transition-fast);
+}
+
+a:hover {
+    color: var(--primary-dark);
+    text-decoration: underline;
+}
+
+button {
+    cursor: pointer;
+    transition: var(--transition-fast);
+}
+
+img {
+    max-width: 100%;
+    height: auto;
+}
+
+.container {
+    width: 100%;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 var(--spacing-md);
+}
+
+.section-padding {
+    padding: var(--spacing-lg) 0;
+}

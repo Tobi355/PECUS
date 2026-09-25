@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Registrarse - PECUS</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+    <link rel="stylesheet" href="../assets/css/variables.css">
+    <link rel="stylesheet" href="../assets/css/global.css">
+    <link rel="stylesheet" href="../assets/css/components.css">
+    <link rel="stylesheet" href="../assets/css/pages.css">
+</head>
+<body>
+    <div class="container min-vh-100 d-flex align-items-center">
+        <div class="row w-100">
+            <div class="col-md-6 col-lg-4 mx-auto">
+                <div class="card shadow-lg">
+                    <div class="card-body p-5">
+                        <div class="text-center mb-4">
+                            <h1 class="logo-text">PECUS</h1>
+                            <p class="text-muted text-accent">Crear cuenta</p>
+                        </div>
+
+                        <form id="register-form">
+                            <div class="mb-3">
+                                <label for="register-name" class="form-label">Nombre</label>
+                                <input type="text" class="form-control" id="register-name" placeholder="Juan" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="register-surname" class="form-label">Apellido</label>
+                                <input type="text" class="form-control" id="register-surname" placeholder="Pérez" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="register-email" class="form-label">Correo electrónico</label>
+                                <input type="email" class="form-control" id="register-email" placeholder="tu@email.com" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="register-password" class="form-label">Contraseña</label>
+                                <input type="password" class="form-control" id="register-password" placeholder="••••••••" minlength="6" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="register-confirm-password" class="form-label">Confirmar contraseña</label>
+                                <input type="password" class="form-control" id="register-confirm-password" placeholder="••••••••" minlength="6" required>
+                            </div>
+
+                            <button type="submit" class="btn btn-primary w-100 py-2 mb-3">
+                                Crear cuenta
+                            </button>
+
+                            <div class="mb-3">
+                                <p class="text-center mb-0">Al registrarte, aceptas los <a href="#" class="text-decoration-none">Términos y condiciones</a> y la <a href="#" class="text-decoration-none">Política de privacidad</a>.</p>
+                            </div>
+
+                            <div class="text-center">
+                                <p class="text-center mb-0">¿Ya tienes una cuenta? <a href="login.html" class="text-decoration-none">Inicia sesión</a></p>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="../assets/js/app.js"></script>
+    <script src="../assets/js/components.js"></script>
+</body>
+</html>

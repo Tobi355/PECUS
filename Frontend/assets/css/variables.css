@@ -1,0 +1,107 @@
+@font-face {
+    font-family: 'Gopadel Medium';
+    src: url('../fonts/GopadelMedium.otf') format('opentype');
+    font-weight: 500;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Souvenir Std Light Italic';
+    src: url('../fonts/SouvenirStdLightItalic.otf') format('opentype');
+    font-weight: 300;
+    font-style: italic;
+    font-display: swap;
+}
+
+:root {
+    /* Primary Colors */
+    --primary-dark: #0A3B25;
+    --primary: #2A6151;
+    --neutral: #B2B7AA;
+    --background: #FCF7F0;
+    --accent: #D8C2A4;
+
+    /* Gray Scale */
+    --gray-50: #f8f9fa;
+    --gray-100: #f1f3f5;
+    --gray-200: #e9ecef;
+    --gray-300: #dee2e6;
+    --gray-400: #ced4da;
+    --gray-500: #adb5bd;
+    --gray-600: #6c757d;
+    --gray-700: #495057;
+    --gray-800: #343a40;
+    --gray-900: #212529;
+
+    /* Status Colors */
+    --success: #28a745;
+    --warning: #ffc107;
+    --error: #dc3545;
+    --info: #17a2b8;
+
+    /* Typography */
+    --font-primary: 'Gopadel Medium', sans-serif;
+    --font-secondary: 'Souvenir Std Light Italic', Georgia, 'Times New Roman', serif;
+    --font-fallback: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+
+    /* Border Radius */
+    --border-radius-sm: 0.25rem;
+    --border-radius: 0.5rem;
+    --border-radius-lg: 1rem;
+    --border-radius-xl: 1.5rem;
+
+    /* Spacing */
+    --spacing-xs: 0.25rem;
+    --spacing-sm: 0.5rem;
+    --spacing-md: 1rem;
+    --spacing-lg: 1.5rem;
+    --spacing-xl: 2rem;
+    --spacing-xxl: 3rem;
+
+    /* Shadows */
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    --shadow-md: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+
+    /* Transitions */
+    --transition-fast: 150ms ease;
+    --transition: 200ms ease;
+    --transition-slow: 300ms ease;
+
+    /* Sidebar Specific */
+    --sidebar-width: 260px;
+    --sidebar-width-collapsed: 80px;
+    --sidebar-bg: var(--background);
+    --sidebar-border: 1px solid var(--gray-200);
+    --sidebar-icon-size: 20px;
+    --sidebar-icon-size-expanded: 24px;
+
+    /* Bootstrap overrides — keep every Bootstrap utility (.text-primary,
+       .bg-primary, .btn-primary, checked checkboxes, progress bars, focus
+       rings, links, etc.) on-brand instead of Bootstrap's default blue. */
+    --bs-primary: #2A6151;
+    --bs-primary-rgb: 42, 97, 81;
+    --bs-secondary: #B2B7AA;
+    --bs-secondary-rgb: 178, 183, 170;
+    --bs-success: #2A6151;
+    --bs-body-bg: #FCF7F0;
+    --bs-body-color: #212529;
+    --bs-body-font-family: var(--font-fallback);
+    --bs-link-color: #2A6151;
+    --bs-link-color-rgb: 42, 97, 81;
+    --bs-link-hover-color: #0A3B25;
+    --bs-link-hover-color-rgb: 10, 59, 37;
+    --bs-border-radius: var(--border-radius);
+    --bs-border-radius-lg: var(--border-radius-lg);
+    --bs-border-radius-sm: var(--border-radius-sm);
+
+    /* Z-index */
+    --z-index-sidebar: 1000;
+    --z-index-fixed: 1030;
+    --z-index-modal-backdrop: 1040;
+    --z-index-modal: 1050;
+    --z-index-popover: 1060;
+    --z-index-tooltip: 1070;
+}
