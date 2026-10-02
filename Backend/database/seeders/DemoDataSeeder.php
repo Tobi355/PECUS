@@ -16,24 +16,31 @@ class DemoDataSeeder extends Seeder
      */
     public function run(): void
     {
-        // Create a demo user
-        $user = User::create([
+        // Create or reuse the demo user so repeated seed runs remain safe.
+        $user = User::firstOrCreate(
+            ['email' => 'juan.perez@email.com'],
+            [
+                'name' => 'Juan',
+                'surname' => 'Pérez',
+                'password' => Hash::make('password'),
+            ]
+        );
+
+        $user->update([
             'name' => 'Juan',
             'surname' => 'Pérez',
-            'email' => 'juan.perez@email.com',
-            'password' => Hash::make('password'), // password: password
-            // phone, photo, google_id can be null
+            'password' => Hash::make('password'),
         ]);
 
-        // Create a source for the user
-        $source = Source::create([
-            'user_id' => $user->id,
-            'name' => 'Mercado Pago',
-            'type' => 'WALLET',
-            'currency' => 'ARS',
-            'initial_balance' => 0.00,
-            'status' => 'ACTIVE',
-        ]);
+        // Create or reuse the demo source for the user.
+        Source::firstOrCreate(
+            ['user_id' => $user->id, 'name' => 'Mercado Pago', 'type' => 'WALLET'],
+            [
+                'currency' => 'ARS',
+                'initial_balance' => 0.00,
+                'status' => 'ACTIVE',
+            ]
+        );
 
         // Create default categories for expenses
         $expenseCategories = [
@@ -51,7 +58,10 @@ class DemoDataSeeder extends Seeder
         ];
 
         foreach ($expenseCategories as $categoryData) {
-            Category::create(array_merge($categoryData, ['user_id' => $user->id]));
+            Category::firstOrCreate(
+                ['user_id' => $user->id, 'name' => $categoryData['name'], 'type' => $categoryData['type']],
+                array_merge($categoryData, ['user_id' => $user->id])
+            );
         }
 
         // Create default categories for income
@@ -64,7 +74,10 @@ class DemoDataSeeder extends Seeder
         ];
 
         foreach ($incomeCategories as $categoryData) {
-            Category::create(array_merge($categoryData, ['user_id' => $user->id]));
+            Category::firstOrCreate(
+                ['user_id' => $user->id, 'name' => $categoryData['name'], 'type' => $categoryData['type']],
+                array_merge($categoryData, ['user_id' => $user->id])
+            );
         }
     }
 }
