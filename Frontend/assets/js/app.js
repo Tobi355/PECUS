@@ -3,33 +3,105 @@ class PecusApp {
     constructor() {
         this.currentPage = document.body.dataset.page || 'dashboard';
         this.mockData = this.loadMockData();
+        this.state = {
+            user: this.mockData.user,
+            dashboard: null,
+            sources: this.mockData.sources,
+            categories: this.mockData.categories,
+            movements: this.mockData.movements,
+            receipts: [],
+        };
         this.init();
     }
 
-    init() {
-        // Render any static Lucide icons on the page (login, register,
-        // onboarding, etc. all include icons even without the app shell).
+    async init() {
         if (window.lucide) {
             window.lucide.createIcons();
         }
 
-        // Public/auth pages (login, register, onboarding) don't have the
-        // app shell (sidebar + content placeholder), so skip the app init.
+        if (document.getElementById('login-form')) {
+            return;
+        }
+
+        if (document.getElementById('register-form')) {
+            return;
+        }
+
         if (!document.getElementById('sidebar-placeholder')) {
             return;
         }
+
+        if (!PecusApi || !PecusApi.getToken()) {
+            window.location.href = 'login.html';
+            return;
+        }
+
+        try {
+            this.loadSidebar();
+            await this.loadProtectedData();
+            this.renderPage(this.currentPage);
+        } catch (error) {
+            console.error('Session init error:', error);
+            if (PecusApi) {
+                PecusApi.clearToken();
+            }
+            Toast?.show(error.message || 'No se pudo cargar tu sesión.', 'error');
+            setTimeout(() => {
+                window.location.href = 'login.html';
+            }, 1200);
+        }
+    }
+
+    async loadProtectedData() {
+        const [user, dashboard, sources, categories, movements, receipts] = await Promise.all([
+            PecusApi.getUser().catch(() => null),
+            PecusApi.getDashboard().catch(() => null),
+            PecusApi.getSources().catch(() => []),
+            PecusApi.getCategories().catch(() => []),
+            PecusApi.getMovements().catch(() => []),
+            PecusApi.getReceipts().catch(() => []),
+        ]);
+
+        this.state.user = user || this.mockData.user;
+        this.state.dashboard = dashboard || {
+            summary: { available: 0, income: 0, expenses: 0, balance: 0 },
+            recent_movements: [],
+            sources: []
+        };
+        this.state.sources = Array.isArray(sources) && sources.length ? sources : this.mockData.sources;
+        this.state.categories = Array.isArray(categories) && categories.length ? categories : this.mockData.categories;
+        this.state.movements = Array.isArray(movements) && movements.length ? movements : this.mockData.movements;
+        this.state.receipts = Array.isArray(receipts) ? receipts : [];
+
         this.loadSidebar();
-        this.renderPage(this.currentPage);
+    }
+
+    getDisplayUser() {
+        const user = this.state.user || this.mockData.user || { name: 'Usuario', email: 'usuario@pecus.app' };
+        return {
+            name: user.name || 'Usuario',
+            surname: user.surname || '',
+            email: user.email || 'usuario@pecus.app',
+        };
     }
 
     loadSidebar() {
         const sidebarPlaceholder = document.getElementById('sidebar-placeholder');
-        sidebarPlaceholder.innerHTML = this.getSidebarHTML();
+        if (!sidebarPlaceholder) {
+            return;
+        }
+
+        const profile = this.getDisplayUser();
+        sidebarPlaceholder.innerHTML = this.getSidebarHTML(profile);
         this.setupSidebarEvents();
     }
 
     renderPage(pageName) {
         const mainContentPlaceholder = document.getElementById('main-content-placeholder');
+        if (!mainContentPlaceholder) {
+            return;
+        }
+
         mainContentPlaceholder.innerHTML = this.getPageContent(pageName);
         this.setupPageSpecificEvents(pageName);
         if (window.lucide) {
@@ -37,7 +109,7 @@ class PecusApp {
         }
     }
 
-    getSidebarHTML() {
+    getSidebarHTML(profile) {
         const items = [
             { page: 'dashboard', icon: 'home', label: 'Dashboard' },
             { page: 'movements', icon: 'arrow-left-right', label: 'Movimientos' },
@@ -77,8 +149,8 @@ class PecusApp {
                     <a class="sidebar-profile" href="settings.html">
                         <i class="icon" data-lucide="user-circle"></i>
                         <div class="profile-info">
-                            <span class="profile-name">${this.mockData.user.name}</span>
-                            <small class="profile-email">${this.mockData.user.email}</small>
+                            <span class="profile-name">${profile.name} ${profile.surname}</span>
+                            <small class="profile-email">${profile.email}</small>
                         </div>
                     </a>
                 </div>
@@ -151,8 +223,118 @@ class PecusApp {
     }
 
     setupPageSpecificEvents(pageName) {
-        // Page-specific event listeners will be added here
-        // This is where we'd initialize charts, form validations, etc.
+        if (pageName === 'receipts') {
+            this.setupReceiptsPageEvents();
+        }
+    }
+
+    setupReceiptsPageEvents() {
+        const uploadForm = document.getElementById('receipt-upload-form');
+        if (uploadForm) {
+            uploadForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                const fileInput = document.getElementById('receipt-file');
+                const file = fileInput?.files?.[0];
+
+                if (!file) {
+                    Toast?.show('Seleccioná un comprobante para subir.', 'error');
+                    return;
+                }
+
+                const allowedTypes = ['image/jpeg', 'image/png', 'application/pdf'];
+                const isAllowedType = allowedTypes.includes(file.type) || ['jpg', 'jpeg', 'png', 'pdf'].includes(file.name.split('.').pop().toLowerCase());
+                const maxSize = 10 * 1024 * 1024;
+
+                if (!isAllowedType) {
+                    Toast?.show('Formato no válido. Usá JPG, JPEG, PNG o PDF.', 'error');
+                    return;
+                }
+
+                if (file.size > maxSize) {
+                    Toast?.show('El archivo supera el límite de 10MB.', 'error');
+                    return;
+                }
+
+                const submitButton = uploadForm.querySelector('button[type="submit"]');
+                submitButton.disabled = true;
+                submitButton.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Subiendo...';
+
+                try {
+                    const uploadedReceipt = await PecusApi.uploadReceipt(file);
+                    const processedReceipt = await PecusApi.processReceipt(uploadedReceipt.id);
+                    Toast?.show('Comprobante cargado y procesado correctamente.', 'success');
+                    await this.loadProtectedData();
+                    this.renderPage('receipts');
+                    console.log('Processed receipt:', processedReceipt);
+                } catch (error) {
+                    console.error(error);
+                    Toast?.show(error.message || 'No se pudo subir el comprobante.', 'error');
+                } finally {
+                    submitButton.disabled = false;
+                    submitButton.innerHTML = '<i class="me-2" data-lucide="upload"></i> Subir comprobante';
+                    if (window.lucide) {
+                        window.lucide.createIcons();
+                    }
+                }
+            });
+        }
+
+        const reviewForm = document.getElementById('receipt-review-form');
+        if (reviewForm) {
+            reviewForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                const receiptId = reviewForm.dataset.receiptId;
+                const payload = {
+                    amount: Number(document.getElementById('review-amount').value),
+                    date: document.getElementById('review-date').value,
+                    merchant: document.getElementById('review-merchant').value,
+                    description: document.getElementById('review-description').value,
+                    operation_type: document.getElementById('review-operation-type').value,
+                    currency: document.getElementById('review-currency').value,
+                    source_id: Number(document.getElementById('review-source').value),
+                    category_id: Number(document.getElementById('review-category').value),
+                };
+
+                const submitButton = reviewForm.querySelector('button[type="submit"]');
+                submitButton.disabled = true;
+                submitButton.textContent = 'Guardando...';
+
+                try {
+                    await PecusApi.reviewReceipt(receiptId, payload);
+                    Toast?.show('Revisión guardada correctamente.', 'success');
+                    await this.loadProtectedData();
+                    this.renderPage('receipts');
+                } catch (error) {
+                    console.error(error);
+                    Toast?.show(error.message || 'No se pudo guardar la revisión.', 'error');
+                } finally {
+                    submitButton.disabled = false;
+                    submitButton.textContent = 'Guardar revisión';
+                }
+            });
+        }
+
+        const confirmButton = document.getElementById('receipt-confirm-button');
+        if (confirmButton) {
+            confirmButton.addEventListener('click', async () => {
+                const receiptId = confirmButton.dataset.receiptId;
+                confirmButton.disabled = true;
+                confirmButton.textContent = 'Confirmando...';
+
+                try {
+                    const result = await PecusApi.confirmReceipt(receiptId);
+                    Toast?.show('Comprobante confirmado y movimiento creado.', 'success');
+                    console.log('Receipt confirmed:', result);
+                    await this.loadProtectedData();
+                    window.location.reload();
+                } catch (error) {
+                    console.error(error);
+                    Toast?.show(error.message || 'No se pudo confirmar el comprobante.', 'error');
+                    confirmButton.disabled = false;
+                    confirmButton.textContent = 'Confirmar comprobante';
+                }
+            });
+        }
     }
 
     loadMockData() {
@@ -317,6 +499,9 @@ class PecusApp {
 
     // Page Content Methods
     getDashboardContent() {
+        const summary = this.getDashboardSummary();
+        const recentMovements = (this.state.dashboard?.recent_movements?.length ? this.state.dashboard.recent_movements : this.state.movements).slice(0, 6);
+
         return `
             <div class="container">
                 <div class="dashboard-header">
@@ -330,13 +515,12 @@ class PecusApp {
                 </div>
 
                 <div class="dashboard-grid">
-                    <!-- Money Available Card -->
                     <div class="dashboard-card">
                         <div class="card-body">
                             <div class="d-flex justify-content-between align-items-start">
                                 <div>
                                     <h6 class="card-title text-uppercase text-muted">Dinero disponible</h6>
-                                    <h3 class="card-text mb-0">$${this.formatNumber(this.mockData.user.balance)}</h3>
+                                    <h3 class="card-text mb-0">$${this.formatNumber(summary.available)}</h3>
                                 </div>
                                 <div class="icon-bg-primary">
                                     <i class="icon-lg" data-lucide="wallet"></i>
@@ -345,13 +529,12 @@ class PecusApp {
                         </div>
                     </div>
 
-                    <!-- Income Card -->
                     <div class="dashboard-card">
                         <div class="card-body">
                             <div class="d-flex justify-content-between align-items-start">
                                 <div>
                                     <h6 class="card-title text-uppercase text-muted">Ingresos</h6>
-                                    <h3 class="card-text mb-0">$${this.formatNumber(85000)}</h3>
+                                    <h3 class="card-text mb-0">$${this.formatNumber(summary.income)}</h3>
                                 </div>
                                 <div class="icon-bg-success">
                                     <i class="icon-lg" data-lucide="trending-up"></i>
@@ -360,13 +543,12 @@ class PecusApp {
                         </div>
                     </div>
 
-                    <!-- Expenses Card -->
                     <div class="dashboard-card">
                         <div class="card-body">
                             <div class="d-flex justify-content-between align-items-start">
                                 <div>
                                     <h6 class="card-title text-uppercase text-muted">Gastos</h6>
-                                    <h3 class="card-text mb-0">$${this.formatNumber(45000)}</h3>
+                                    <h3 class="card-text mb-0">$${this.formatNumber(summary.expenses)}</h3>
                                 </div>
                                 <div class="icon-bg-error">
                                     <i class="icon-lg" data-lucide="trending-down"></i>
@@ -375,13 +557,12 @@ class PecusApp {
                         </div>
                     </div>
 
-                    <!-- Balance Card -->
                     <div class="dashboard-card">
                         <div class="card-body">
                             <div class="d-flex justify-content-between align-items-start">
                                 <div>
                                     <h6 class="card-title text-uppercase text-muted">Balance</h6>
-                                    <h3 class="card-text mb-0">$${this.formatNumber(40000)}</h3>
+                                    <h3 class="card-text mb-0">$${this.formatNumber(summary.balance)}</h3>
                                 </div>
                                 <div class="icon-bg-info">
                                     <i class="icon-lg" data-lucide="scale"></i>
@@ -391,36 +572,34 @@ class PecusApp {
                     </div>
                 </div>
 
-                <!-- Quick Actions -->
                 <div class="row mb-4">
                     <div class="col-12">
                         <h2 class="section-title mb-3">Acciones rápidas</h2>
                         <div class="row g-3">
                             <div class="col-md-3">
-                                <button class="btn btn-primary w-100">
+                                <a href="movements.html" class="btn btn-primary w-100">
                                     <i class="me-2" data-lucide="plus"></i> Nuevo movimiento
-                                </button>
+                                </a>
                             </div>
                             <div class="col-md-3">
-                                <button class="btn btn-outline w-100">
+                                <a href="receipts.html" class="btn btn-outline w-100">
                                     <i class="me-2" data-lucide="upload"></i> Cargar comprobante
-                                </button>
+                                </a>
                             </div>
                             <div class="col-md-3">
-                                <button class="btn btn-outline w-100">
+                                <a href="sources.html" class="btn btn-outline w-100">
                                     <i class="me-2" data-lucide="building-2"></i> Nueva fuente
-                                </button>
+                                </a>
                             </div>
                             <div class="col-md-3">
-                                <button class="btn btn-outline w-100">
+                                <a href="receipts.html" class="btn btn-outline w-100">
                                     <i class="me-2" data-lucide="list-checks"></i> Revisar pendientes
-                                </button>
+                                </a>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Recent Movements and Charts -->
                 <div class="row">
                     <div class="col-lg-8">
                         <div class="card">
@@ -440,23 +619,25 @@ class PecusApp {
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            ${this.mockData.movements.map(mov => `
-                                                <tr>
-                                                    <td>${this.formatDate(mov.date)}</td>
-                                                    <td>${mov.description}</td>
-                                                    <td>
-                                                        ${this.getSourceById(mov.sourceId)?.name || 'Desconocido'}
-                                                    </td>
-                                                    <td>
-                                                        <span class="badge bg-${this.getCategoryById(mov.categoryId)?.color.replace('#', '') || 'secondary'}">
-                                                            ${this.getCategoryById(mov.categoryId)?.name || 'Sin categoría'}
-                                                        </span>
-                                                    </td>
-                                                    <td class="text-end ${mov.type === 'INCOME' ? 'text-success' : 'text-error'}">
-                                                        ${mov.type === 'INCOME' ? '+' : '-'}$${this.formatNumber(mov.amount)}
-                                                    </td>
-                                                </tr>
-                                            `).join('')}
+                                            ${recentMovements.map((mov) => {
+                                                const sourceName = mov.source?.name || this.getSourceById(Number(mov.source_id || mov.sourceId))?.name || 'Desconocido';
+                                                const category = mov.category || this.getCategoryById(Number(mov.category_id || mov.categoryId));
+                                                const categoryName = category?.name || 'Sin categoría';
+                                                const categoryColor = category?.color || '#6c757d';
+                                                return `
+                                                    <tr>
+                                                        <td>${this.formatDate(mov.operation_date || mov.date)}</td>
+                                                        <td>${mov.description || 'Sin descripción'}</td>
+                                                        <td>${sourceName}</td>
+                                                        <td>
+                                                            <span class="badge" style="background:${categoryColor};color:white;">${categoryName}</span>
+                                                        </td>
+                                                        <td class="text-end ${mov.type === 'INCOME' ? 'text-success' : 'text-error'}">
+                                                            ${mov.type === 'INCOME' ? '+' : '-'}$${this.formatNumber(mov.amount || 0)}
+                                                        </td>
+                                                    </tr>
+                                                `;
+                                            }).join('') || '<tr><td colspan="5" class="text-center py-4">No hay movimientos para mostrar.</td></tr>'}
                                         </tbody>
                                     </table>
                                 </div>
@@ -479,6 +660,8 @@ class PecusApp {
     }
 
     getMovementsContent() {
+        const movements = this.state.movements || [];
+
         return `
             <div class="container">
                 <div class="dashboard-header mb-4">
@@ -491,7 +674,7 @@ class PecusApp {
                             <input type="text" class="form-control filter-input" placeholder="Buscar movimientos...">
                             <select class="form-select filter-select">
                                 <option value="all">Todas las categorías</option>
-                                ${this.mockData.categories.map(cat => `<option value="${cat.id}">${cat.name}</option>`).join('')}
+                                ${this.state.categories.map(cat => `<option value="${cat.id}">${cat.name}</option>`).join('')}
                             </select>
                             <select class="form-select filter-select">
                                 <option value="all">Todos los tipos</option>
@@ -523,45 +706,24 @@ class PecusApp {
                                                 <th>Categoría</th>
                                                 <th>Tipo</th>
                                                 <th>Monto</th>
-                                                <th>Acciones</th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            ${this.mockData.movements.map(mov => `
-                                                <tr>
-                                                    <td>${this.formatDate(mov.date)}</td>
-                                                    <td>${mov.description}</td>
-                                                    <td>
-                                                        ${this.getSourceById(mov.sourceId)?.name || 'Desconocido'}
-                                                    </td>
-                                                    <td>
-                                                        <span class="badge bg-${this.getCategoryById(mov.categoryId)?.color.replace('#', '') || 'secondary'}">
-                                                            ${this.getCategoryById(mov.categoryId)?.name || 'Sin categoría'}
-                                                        </span>
-                                                    </td>
-                                                    <td>
-                                                        <span class="badge bg-${mov.type === 'INCOME' ? 'success' : mov.type === 'EXPENSE' ? 'error' : 'info'}">
-                                                            ${this.getMovementTypeLabel(mov.type)}
-                                                        </span>
-                                                    </td>
-                                                    <td class="text-end ${mov.type === 'INCOME' ? 'text-success' : 'text-error'}">
-                                                        ${mov.type === 'INCOME' ? '+' : '-'}$${this.formatNumber(mov.amount)}
-                                                    </td>
-                                                    <td>
-                                                        <div class="btn-group btn-group-sm">
-                                                            <button class="btn btn-outline btn-sm" title="Editar">
-                                                                <i data-lucide="pencil"></i>
-                                                            </button>
-                                                            <button class="btn btn-outline btn-sm" title="Eliminar">
-                                                                <i data-lucide="trash-2"></i>
-                                                            </button>
-                                                            <button class="btn btn-outline btn-sm" title="Detalle">
-                                                                <i data-lucide="eye"></i>
-                                                            </button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            `).join('')}
+                                            ${movements.map((mov) => {
+                                                const sourceName = mov.source?.name || this.getSourceById(Number(mov.source_id || mov.sourceId))?.name || 'Desconocido';
+                                                const category = mov.category || this.getCategoryById(Number(mov.category_id || mov.categoryId));
+                                                const categoryName = category?.name || 'Sin categoría';
+                                                return `
+                                                    <tr>
+                                                        <td>${this.formatDate(mov.operation_date || mov.date)}</td>
+                                                        <td>${mov.description || 'Sin descripción'}</td>
+                                                        <td>${sourceName}</td>
+                                                        <td><span class="badge" style="background:${category?.color || '#6c757d'};color:white;">${categoryName}</span></td>
+                                                        <td><span class="badge bg-${mov.type === 'INCOME' ? 'success' : mov.type === 'EXPENSE' ? 'danger' : 'info'}">${this.getMovementTypeLabel(mov.type)}</span></td>
+                                                        <td class="text-end ${mov.type === 'INCOME' ? 'text-success' : 'text-error'}">${mov.type === 'INCOME' ? '+' : '-'}$${this.formatNumber(mov.amount || 0)}</td>
+                                                    </tr>
+                                                `;
+                                            }).join('') || '<tr><td colspan="6" class="text-center py-4">No hay movimientos para mostrar.</td></tr>'}
                                         </tbody>
                                     </table>
                                 </div>
@@ -569,34 +731,19 @@ class PecusApp {
                         </div>
                     </div>
                 </div>
-
-                <div class="row mt-4">
-                    <div class="col-12 text-center">
-                        <button class="btn btn-primary">
-                            <i class="me-2" data-lucide="plus"></i> Nuevo movimiento
-                        </button>
-                    </div>
-                </div>
             </div>
         `;
     }
 
     getReceiptsContent() {
+        const receipts = this.state.receipts || [];
+        const latestProcessed = receipts.find((receipt) => receipt.status === 'PROCESSED' || receipt.status === 'CONFIRMED') || receipts[0];
+        const extracted = latestProcessed?.extracted_data || {};
+
         return `
             <div class="container">
                 <div class="dashboard-header mb-4">
                     <h1 class="dashboard-title">Comprobantes</h1>
-                </div>
-
-                <div class="row mb-4">
-                    <div class="col-12">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <h2>Subir comprobante</h2>
-                            <button class="btn btn-outline">
-                                <i class="me-2" data-lucide="refresh-cw"></i> Actualizar
-                            </button>
-                        </div>
-                    </div>
                 </div>
 
                 <div class="row mb-4">
@@ -618,6 +765,67 @@ class PecusApp {
                     </div>
                 </div>
 
+                ${latestProcessed && Object.keys(extracted).length ? `
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5 class="card-title mb-0">Revisar datos extraídos</h5>
+                                </div>
+                                <div class="card-body">
+                                    <form id="receipt-review-form" data-receipt-id="${latestProcessed.id}">
+                                        <div class="row g-3">
+                                            <div class="col-md-3">
+                                                <label class="form-label">Monto</label>
+                                                <input id="review-amount" class="form-control" value="${extracted.amount || ''}">
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label class="form-label">Fecha</label>
+                                                <input id="review-date" type="date" class="form-control" value="${extracted.date || ''}">
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label class="form-label">Comercio</label>
+                                                <input id="review-merchant" class="form-control" value="${extracted.merchant || ''}">
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label class="form-label">Moneda</label>
+                                                <input id="review-currency" class="form-control" value="${extracted.currency || 'ARS'}">
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label">Descripción</label>
+                                                <input id="review-description" class="form-control" value="${extracted.description || ''}">
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label class="form-label">Tipo</label>
+                                                <select id="review-operation-type" class="form-select">
+                                                    <option value="EXPENSE" ${extracted.operation_type === 'EXPENSE' ? 'selected' : ''}>Gasto</option>
+                                                    <option value="INCOME" ${extracted.operation_type === 'INCOME' ? 'selected' : ''}>Ingreso</option>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label class="form-label">Fuente</label>
+                                                <select id="review-source" class="form-select">
+                                                    ${this.state.sources.map((source) => `<option value="${source.id}" ${Number(extracted.source_id) === Number(source.id) ? 'selected' : ''}>${source.name}</option>`).join('')}
+                                                </select>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label class="form-label">Categoría</label>
+                                                <select id="review-category" class="form-select">
+                                                    ${this.state.categories.map((category) => `<option value="${category.id}" ${Number(extracted.category_id) === Number(category.id) ? 'selected' : ''}>${category.name}</option>`).join('')}
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div class="d-flex gap-2 mt-3">
+                                            <button type="submit" class="btn btn-primary">Guardar revisión</button>
+                                            <button type="button" class="btn btn-success" id="receipt-confirm-button" data-receipt-id="${latestProcessed.id}">Confirmar comprobante</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                ` : ''}
+
                 <div class="row">
                     <div class="col-12">
                         <div class="card">
@@ -630,60 +838,22 @@ class PecusApp {
                                         <thead>
                                             <tr>
                                                 <th>Fecha</th>
-                                                <th>Commerce</th>
+                                                <th>Comercio</th>
                                                 <th>Monto</th>
                                                 <th>Estado</th>
                                                 <th>Confianza</th>
-                                                <th>Acciones</th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            <!-- Mock receipts data -->
-                                            <tr>
-                                                <td>20/09/2026</td>
-                                                <td>Supermercado Día</td>
-                                                <td>$12,500</td>
-                                                <td><span class="badge bg-success">PROCESADO</span></td>
-                                                <td>95%</td>
-                                                <td>
-                                                    <div class="btn-group btn-group-sm">
-                                                        <button class="btn btn-outline btn-sm" title="Ver detalle">
-                                                            <i data-lucide="eye"></i>
-                                                        </button>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                            <tr>
-                                                <td>19/09/2026</td>
-                                                <td>Netflix</td>
-                                                <td>$5,600</td>
-                                                <td><span class="badge bg-success">CONFIRMADO</span></td>
-                                                <td>98%</td>
-                                                <td>
-                                                    <div class="btn-group btn-group-sm">
-                                                        <button class="btn btn-outline btn-sm" title="Ver detalle">
-                                                            <i data-lucide="eye"></i>
-                                                        </button>
-                                                    </td>
-                                                </td>
-                                            </tr>
-                                            <tr>
-                                                <td>18/09/2026</td>
-                                                <td>Shell Estación</td>
-                                                <td>$8,200</td>
-                                                <td><span class="badge bg-warning">REQUIERE_REVISION</span></td>
-                                                <td>75%</td>
-                                                <td>
-                                                    <div class="btn-group btn-group-sm">
-                                                        <button class="btn btn-outline btn-sm" title="Revisar">
-                                                            <i data-lucide="pencil"></i>
-                                                        </button>
-                                                        <button class="btn btn-outline btn-sm" title="Ver detalle">
-                                                            <i data-lucide="eye"></i>
-                                                        </button>
-                                                    </div>
-                                                </td>
-                                            </tr>
+                                            ${receipts.length ? receipts.map((receipt) => `
+                                                <tr>
+                                                    <td>${this.formatDate(receipt.created_at || new Date().toISOString())}</td>
+                                                    <td>${receipt.extracted_data?.merchant || receipt.file_name || 'Sin nombre'}</td>
+                                                    <td>$${this.formatNumber(Number(receipt.extracted_data?.amount || 0))}</td>
+                                                    <td><span class="badge bg-${receipt.status === 'CONFIRMED' ? 'success' : receipt.status === 'PROCESSED' ? 'warning' : 'secondary'}">${receipt.status}</span></td>
+                                                    <td>${receipt.confidence || 'HIGH'}</td>
+                                                </tr>
+                                            `).join('') : '<tr><td colspan="5" class="text-center py-4">Todavía no hay comprobantes cargados.</td></tr>'}
                                         </tbody>
                                     </table>
                                 </div>
@@ -717,31 +887,30 @@ class PecusApp {
                                 <h5 class="card-title mb-0">Mis fuentes</h5>
                             </div>
                             <div class="card-body">
-                                ${this.mockData.sources.map(source => `
-                                    <div class="source-card">
-                                        <div class="source-info">
-                                            <div class="source-icon">
-                                                <i data-lucide="${source.icon}"></i>
+                                ${this.state.sources.map((source) => {
+                                    const currentBalance = source.current_balance ?? source.initial_balance ?? 0;
+                                    return `
+                                        <div class="source-card">
+                                            <div class="source-info">
+                                                <div class="source-icon">
+                                                    <i data-lucide="${source.type === 'BANK' ? 'building-2' : source.type === 'CREDIT_CARD' ? 'credit-card' : source.type === 'CASH' ? 'banknote' : 'wallet'}"></i>
+                                                </div>
+                                                <div class="source-details">
+                                                    <h6 class="source-name">${source.name}</h6>
+                                                    <small class="source-type">${this.getSourceTypeLabel(source.type)}</small>
+                                                </div>
                                             </div>
-                                            <div class="source-details">
-                                                <h6 class="source-name">${source.name}</h6>
-                                                <small class="source-type">${this.getSourceTypeLabel(source.type)}</small>
+                                            <div class="source-balance ${currentBalance >= 0 ? 'text-success' : 'text-error'}">
+                                                $${this.formatNumber(Math.abs(currentBalance))}
+                                                ${currentBalance >= 0 ? '' : '(deuda)'}
+                                            </div>
+                                            <div class="source-actions">
+                                                <button class="btn btn-outline btn-sm" title="Editar"><i data-lucide="pencil"></i></button>
+                                                <button class="btn btn-outline btn-sm" title="Ver movimientos"><i data-lucide="arrow-left-right"></i></button>
                                             </div>
                                         </div>
-                                        <div class="source-balance ${source.balance >= 0 ? 'text-success' : 'text-error'}">
-                                            $${this.formatNumber(Math.abs(source.balance))}
-                                            ${source.balance >= 0 ? '' : '(deuda)'}
-                                        </div>
-                                        <div class="source-actions">
-                                            <button class="btn btn-outline btn-sm" title="Editar">
-                                                <i data-lucide="pencil"></i>
-                                            </button>
-                                            <button class="btn btn-outline btn-sm" title="Ver movimientos">
-                                                <i data-lucide="arrow-left-right"></i>
-                                            </button>
-                                        </div>
-                                    </div>
-                                `).join('')}
+                                    `;
+                                }).join('') || '<div class="text-center py-4">No hay fuentes cargadas.</div>'}
                             </div>
                         </div>
                     </div>
@@ -773,61 +942,18 @@ class PecusApp {
                             </div>
                             <div class="card-body">
                                 <div class="category-grid">
-                                    <!-- Income Categories -->
-                                    <div class="category-card">
-                                        <div class="category-icon">
-                                            <i data-lucide="banknote"></i>
+                                    ${this.state.categories.map((category) => `
+                                        <div class="category-card">
+                                            <div class="category-icon" style="background:${category.color || '#6c757d'};">
+                                                <i data-lucide="${category.icon || 'tag'}"></i>
+                                            </div>
+                                            <h6 class="category-name">${category.name}</h6>
+                                            <small class="category-type">${category.type === 'INCOME' ? 'Ingreso' : 'Gasto'}</small>
                                         </div>
-                                        <h6 class="category-name">Sueldo</h6>
-                                        <small class="category-type">Ingreso</small>
-                                    </div>
-                                    <div class="category-card">
-                                        <div class="category-icon">
-                                            <i data-lucide="briefcase"></i>
-                                        </div>
-                                        <h6 class="category-name">Freelance</h6>
-                                        <small class="category-type">Ingreso</small>
-                                    </div>
-                                    <!-- Expense Categories -->
-                                    <div class="category-card">
-                                        <div class="category-icon">
-                                            <i data-lucide="utensils"></i>
-                                        </div>
-                                        <h6 class="category-name">Alimentación</h6>
-                                        <small class="category-type">Gasto</small>
-                                    </div>
-                                    <div class="category-card">
-                                        <div class="category-icon">
-                                            <i data-lucide="car"></i>
-                                        </div>
-                                        <h6 class="category-name">Transporte</h6>
-                                        <small class="category-type">Gasto</small>
-                                    </div>
-                                    <div class="category-card">
-                                        <div class="category-icon">
-                                            <i data-lucide="clapperboard"></i>
-                                        </div>
-                                        <h6 class="category-name">Entretenimiento</h6>
-                                        <small class="category-type">Gasto</small>
-                                    </div>
-                                    <div class="category-card">
-                                        <div class="category-icon">
-                                            <i data-lucide="home"></i>
-                                        </div>
-                                        <h6 class="category-name">Vivienda</h6>
-                                        <small class="category-type">Gasto</small>
-                                    </div>
+                                    `).join('') || '<div class="col-12 text-center py-4">No hay categorías cargadas.</div>'}
                                 </div>
                             </div>
                         </div>
-                    </div>
-                </div>
-
-                <div class="row mt-4">
-                    <div class="col-12 text-center">
-                        <button class="btn btn-primary">
-                            <i class="me-2" data-lucide="plus"></i> Nueva categoría
-                        </button>
                     </div>
                 </div>
             </div>
@@ -1258,13 +1384,25 @@ class PecusApp {
         `;
     }
 
+    getDashboardSummary() {
+        const summary = this.state.dashboard?.summary || {};
+        return {
+            available: Number(summary.available ?? summary.balance ?? 0),
+            income: Number(summary.income ?? 0),
+            expenses: Number(summary.expenses ?? 0),
+            balance: Number(summary.balance ?? 0),
+        };
+    }
+
     // Helper Methods
     getSourceById(id) {
-        return this.mockData.sources.find(source => source.id === id) || null;
+        const targetId = Number(id);
+        return (this.state.sources || []).find(source => Number(source.id) === targetId) || null;
     }
 
     getCategoryById(id) {
-        return this.mockData.categories.find(cat => cat.id === id) || null;
+        const targetId = Number(id);
+        return (this.state.categories || []).find(cat => Number(cat.id) === targetId) || null;
     }
 
     getMovementTypeLabel(type) {
@@ -1290,11 +1428,19 @@ class PecusApp {
     }
 
     formatNumber(num) {
-        return new Intl.NumberFormat('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(num);
+        return new Intl.NumberFormat('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(Number(num || 0));
     }
 
     formatDate(dateString) {
+        if (!dateString) {
+            return 'Sin fecha';
+        }
+
         const date = new Date(dateString);
+        if (Number.isNaN(date.getTime())) {
+            return 'Sin fecha';
+        }
+
         return new Intl.DateTimeFormat('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(date);
     }
 }

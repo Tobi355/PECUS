@@ -1,0 +1,34 @@
+Funcionalidades para la tesis:
+
+Login y registro de usuarios.
+Gestión de perfil.
+Gestión de fuentes de dinero.
+Gestión de ingresos.
+Gestión de gastos.
+Gestión de categorías.
+Historial de movimientos.
+Dashboard financiero.
+Filtros y búsqueda de movimientos.
+Carga de comprobantes.
+Lectura y extracción de datos de comprobantes mediante IA/OCR.
+Sugerencia automática de categorías.
+Revisión y confirmación de movimientos extraídos.
+Balance general de las finanzas.
+Diseño responsive.
+
+Funcionalidades futuras:
+
+Integración con bancos.
+Integración con Mercado Pago, MODO, Ualá y otras billeteras.
+Sincronización automática de movimientos.
+Presupuestos.
+Objetivos de ahorro.
+Alertas financieras.
+Análisis financiero avanzado mediante IA.
+Detección de gastos inusuales y recurrentes.
+Asistente financiero con IA.
+Importación masiva de movimientos.
+Lectura masiva de comprobantes.
+Reportes avanzados y exportación.
+Predicciones y proyecciones financieras.
+Reglas de automatización personalizadas.
