@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
@@ -25,12 +26,31 @@ class AuthController extends Controller
             'password' => 'required|string|min:6|confirmed',
         ]);
 
-        $user = User::create([
-            'name' => $request->name,
-            'surname' => $request->surname,
-            'email' => $request->email,
-            'password' => Hash::make($request->password),
-        ]);
+        // Use database transaction for atomic operation
+        $user = DB::transaction(function () use ($request) {
+            $user = User::create([
+                'name' => $request->name,
+                'surname' => $request->surname,
+                'email' => $request->email,
+                'password' => Hash::make($request->password),
+            ]);
+
+            $defaultCategories = [
+                ['name' => 'Alimentación', 'type' => 'EXPENSE', 'icon' => 'utensils', 'color' => '#dc3545'],
+                ['name' => 'Transporte', 'type' => 'EXPENSE', 'icon' => 'car', 'color' => '#ffc107'],
+                ['name' => 'Vivienda', 'type' => 'EXPENSE', 'icon' => 'home', 'color' => '#6f42c1'],
+                ['name' => 'Servicios', 'type' => 'EXPENSE', 'icon' => 'zap', 'color' => '#20c997'],
+                ['name' => 'Salud', 'type' => 'EXPENSE', 'icon' => 'heart-pulse', 'color' => '#fd7e14'],
+                ['name' => 'Otros gastos', 'type' => 'EXPENSE', 'icon' => 'more-horizontal', 'color' => '#6c757d'],
+                ['name' => 'Sueldo', 'type' => 'INCOME', 'icon' => 'banknote', 'color' => '#28a745'],
+                ['name' => 'Otros ingresos', 'type' => 'INCOME', 'icon' => 'more-horizontal', 'color' => '#20c997'],
+            ];
+            foreach ($defaultCategories as $category) {
+                $user->categories()->create(array_merge($category, ['is_default' => true]));
+            }
+
+            return $user;
+        });
 
         $token = $user->createToken('auth_token')->plainTextToken;
 

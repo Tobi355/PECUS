@@ -4,21 +4,20 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 class Receipt extends Model
 {
-    use SoftDeletes;
+    use SoftDeletes, HasFactory;
 
     protected $fillable = [
         'user_id',
-        'movement_id',
         'file_path',
         'file_name',
         'mime_type',
         'status',
-        'confidence',
         'extracted_data',
-        'error_message',
+        'movement_id',
         'processed_at',
     ];
 

@@ -2,14 +2,14 @@
 class PecusApp {
     constructor() {
         this.currentPage = document.body.dataset.page || 'dashboard';
-        this.mockData = this.loadMockData();
         this.state = {
-            user: this.mockData.user,
+            user: null,
             dashboard: null,
-            sources: this.mockData.sources,
-            categories: this.mockData.categories,
-            movements: this.mockData.movements,
+            sources: [],
+            categories: [],
+            movements: [],
             receipts: [],
+            errors: {},
         };
         this.init();
     }
@@ -53,35 +53,30 @@ class PecusApp {
     }
 
     async loadProtectedData() {
-        const [user, dashboard, sources, categories, movements, receipts] = await Promise.all([
-            PecusApi.getUser().catch(() => null),
-            PecusApi.getDashboard().catch(() => null),
-            PecusApi.getSources().catch(() => []),
-            PecusApi.getCategories().catch(() => []),
-            PecusApi.getMovements().catch(() => []),
-            PecusApi.getReceipts().catch(() => []),
+        const requests = await Promise.allSettled([
+            PecusApi.getUser(), PecusApi.getDashboard(), PecusApi.getSources(),
+            PecusApi.getCategories(), PecusApi.getMovements(), PecusApi.getReceipts(),
         ]);
-
-        this.state.user = user || this.mockData.user;
-        this.state.dashboard = dashboard || {
-            summary: { available: 0, income: 0, expenses: 0, balance: 0 },
-            recent_movements: [],
-            sources: []
-        };
-        this.state.sources = Array.isArray(sources) && sources.length ? sources : this.mockData.sources;
-        this.state.categories = Array.isArray(categories) && categories.length ? categories : this.mockData.categories;
-        this.state.movements = Array.isArray(movements) && movements.length ? movements : this.mockData.movements;
+        const [user, dashboard, sources, categories, movements, receipts] = requests.map((result) =>
+            result.status === 'fulfilled' ? result.value : null);
+        this.state.errors = Object.fromEntries(requests.flatMap((result, index) =>
+            result.status === 'rejected' ? [[['user', 'dashboard', 'sources', 'categories', 'movements', 'receipts'][index], result.reason?.message || 'No se pudieron cargar los datos.']] : []));
+        this.state.user = user;
+        this.state.dashboard = dashboard;
+        this.state.sources = Array.isArray(sources) ? sources : [];
+        this.state.categories = Array.isArray(categories) ? categories : [];
+        this.state.movements = Array.isArray(movements) ? movements : [];
         this.state.receipts = Array.isArray(receipts) ? receipts : [];
 
         this.loadSidebar();
     }
 
     getDisplayUser() {
-        const user = this.state.user || this.mockData.user || { name: 'Usuario', email: 'usuario@pecus.app' };
+        const user = this.state.user || {};
         return {
-            name: user.name || 'Usuario',
+            name: user.name || '',
             surname: user.surname || '',
-            email: user.email || 'usuario@pecus.app',
+            email: user.email || '',
         };
     }
 
@@ -226,6 +221,131 @@ class PecusApp {
         if (pageName === 'receipts') {
             this.setupReceiptsPageEvents();
         }
+        if (pageName === 'sources') {
+            this.setupSourcesPageEvents();
+        }
+        if (pageName === 'categories') {
+            this.setupCategoriesPageEvents();
+        }
+        if (pageName === 'movements') {
+            this.setupMovementsPageEvents();
+        }
+        if (pageName === 'dashboard') {
+            this.setupDashboardPageEvents();
+        }
+    }
+
+    setupSourcesPageEvents() {
+        // Create source form (inline)
+        const createForm = document.getElementById('source-create-form');
+        if (createForm) {
+            createForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                const button = createForm.querySelector('button[type="submit"]');
+                button.disabled = true;
+                try {
+                    await PecusApi.createSource({
+                        name: document.getElementById('source-name').value.trim(),
+                        type: document.getElementById('source-type').value,
+                        currency: document.getElementById('source-currency').value.trim().toUpperCase(),
+                        initial_balance: Number(document.getElementById('source-initial-balance').value),
+                        status: 'ACTIVE',
+                    });
+                    Toast?.show('Fuente guardada.', 'success');
+                    await this.loadProtectedData();
+                    this.renderPage('sources');
+                } catch (error) {
+                    Toast?.show(error.message || 'No se pudo guardar la fuente.', 'error');
+                } finally {
+                    button.disabled = false;
+                }
+            });
+        }
+
+        // Create source modal form
+        const createModalForm = document.getElementById('source-create-modal-form');
+        if (createModalForm) {
+            createModalForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                const button = createModalForm.querySelector('button[type="submit"]');
+                button.disabled = true;
+                try {
+                    await PecusApi.createSource({
+                        name: document.getElementById('modal-source-name').value.trim(),
+                        type: document.getElementById('modal-source-type').value,
+                        currency: document.getElementById('modal-source-currency').value.trim().toUpperCase(),
+                        initial_balance: Number(document.getElementById('modal-source-initial-balance').value),
+                        status: 'ACTIVE',
+                    });
+                    Toast?.show('Fuente creada.', 'success');
+                    bootstrap.Modal.getInstance(document.getElementById('source-create-modal'))?.hide();
+                    await this.loadProtectedData();
+                    this.renderPage('sources');
+                } catch (error) {
+                    Toast?.show(error.message || 'No se pudo crear la fuente.', 'error');
+                } finally {
+                    button.disabled = false;
+                }
+            });
+        }
+
+        // Edit source modal form
+        const editModalForm = document.getElementById('source-edit-modal-form');
+        if (editModalForm) {
+            editModalForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                const button = editModalForm.querySelector('button[type="submit"]');
+                const sourceId = document.getElementById('modal-source-edit-id').value;
+                button.disabled = true;
+                try {
+                    await PecusApi.updateSource(sourceId, {
+                        name: document.getElementById('modal-source-edit-name').value.trim(),
+                        type: document.getElementById('modal-source-edit-type').value,
+                        currency: document.getElementById('modal-source-edit-currency').value.trim().toUpperCase(),
+                        initial_balance: Number(document.getElementById('modal-source-edit-initial-balance').value),
+                    });
+                    Toast?.show('Fuente actualizada.', 'success');
+                    bootstrap.Modal.getInstance(document.getElementById('source-edit-modal'))?.hide();
+                    await this.loadProtectedData();
+                    this.renderPage('sources');
+                } catch (error) {
+                    Toast?.show(error.message || 'No se pudo actualizar la fuente.', 'error');
+                } finally {
+                    button.disabled = false;
+                }
+            });
+        }
+
+        // Delete source confirm
+        const deleteConfirmBtn = document.getElementById('source-delete-confirm-btn');
+        if (deleteConfirmBtn) {
+            deleteConfirmBtn.addEventListener('click', async () => {
+                const sourceId = deleteConfirmBtn.dataset.sourceId;
+                deleteConfirmBtn.disabled = true;
+                deleteConfirmBtn.textContent = 'Eliminando...';
+                try {
+                    await PecusApi.deleteSource(sourceId);
+                    Toast?.show('Fuente eliminada.', 'success');
+                    bootstrap.Modal.getInstance(document.getElementById('source-delete-modal'))?.hide();
+                    await this.loadProtectedData();
+                    this.renderPage('sources');
+                } catch (error) {
+                    Toast?.show(error.message || 'No se pudo eliminar la fuente.', 'error');
+                } finally {
+                    deleteConfirmBtn.disabled = false;
+                    deleteConfirmBtn.textContent = 'Eliminar';
+                }
+            });
+        }
+
+        // Edit/delete buttons
+        document.querySelectorAll('[data-source-edit]').forEach((button) => {
+            button.addEventListener('click', () => this.openSourceEditModal(button.dataset.sourceEdit));
+        });
+
+        document.querySelectorAll('[data-source-delete]').forEach((button) => {
+            button.addEventListener('click', () => this.confirmSourceDelete(button.dataset.sourceDelete));
+        });
     }
 
     setupReceiptsPageEvents() {
@@ -261,11 +381,9 @@ class PecusApp {
 
                 try {
                     const uploadedReceipt = await PecusApi.uploadReceipt(file);
-                    const processedReceipt = await PecusApi.processReceipt(uploadedReceipt.id);
-                    Toast?.show('Comprobante cargado y procesado correctamente.', 'success');
+                    Toast?.show('Comprobante guardado. Completá los datos manualmente para crear un movimiento.', 'success');
                     await this.loadProtectedData();
                     this.renderPage('receipts');
-                    console.log('Processed receipt:', processedReceipt);
                 } catch (error) {
                     console.error(error);
                     Toast?.show(error.message || 'No se pudo subir el comprobante.', 'error');
@@ -335,184 +453,441 @@ class PecusApp {
                 }
             });
         }
+
+        document.querySelectorAll('[data-receipt-file]').forEach((button) => {
+            button.addEventListener('click', async () => {
+                button.disabled = true;
+                try {
+                    await PecusApi.openReceiptFile(button.dataset.receiptFile);
+                } catch (error) {
+                    Toast?.show(error.message, 'error');
+                } finally {
+                    button.disabled = false;
+                }
+            });
+        });
     }
 
-    loadMockData() {
-        return {
-            user: {
-                name: 'Juan',
-                surname: 'Pérez',
-                email: 'juan.perez@email.com',
-                balance: 250000
-            },
-            sources: [
-                {
-                    id: 1,
-                    name: 'Cuenta Sueldo',
-                    type: 'BANK',
-                    icon: 'building-2',
-                    balance: 150000,
-                    currency: 'ARS'
-                },
-                {
-                    id: 2,
-                    name: 'Tarjeta Visa',
-                    type: 'CREDIT_CARD',
-                    icon: 'credit-card',
-                    balance: -45000,
-                    currency: 'ARS'
-                },
-                {
-                    id: 3,
-                    name: 'Mercado Pago',
-                    type: 'WALLET',
-                    icon: 'wallet',
-                    balance: 30000,
-                    currency: 'ARS'
-                },
-                {
-                    id: 4,
-                    name: 'Efectivo',
-                    type: 'CASH',
-                    icon: 'banknote',
-                    balance: 15000,
-                    currency: 'ARS'
+    setupCategoriesPageEvents() {
+        // Create category form (inline)
+        const createForm = document.getElementById('category-create-form');
+        if (createForm) {
+            createForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                const button = createForm.querySelector('button[type="submit"]');
+                button.disabled = true;
+                button.textContent = 'Guardando...';
+                try {
+                    await PecusApi.createCategory({
+                        name: document.getElementById('category-name').value.trim(),
+                        type: document.getElementById('category-type').value,
+                        icon: document.getElementById('category-icon').value.trim() || 'tag',
+                        color: document.getElementById('category-color').value.trim() || '#6c757d',
+                    });
+                    Toast?.show('Categoría creada.', 'success');
+                    await this.loadProtectedData();
+                    this.renderPage('categories');
+                } catch (error) {
+                    Toast?.show(error.message || 'No se pudo crear la categoría.', 'error');
+                } finally {
+                    button.disabled = false;
+                    button.textContent = 'Guardar categoría';
                 }
-            ],
-            movements: [
-                {
-                    id: 1,
-                    type: 'INCOME',
-                    sourceId: 1,
-                    categoryId: 1,
-                    amount: 80000,
-                    description: 'Sueldo mensual',
-                    date: '2026-09-20',
-                    status: 'CONFIRMED'
-                },
-                {
-                    id: 2,
-                    type: 'EXPENSE',
-                    sourceId: 2,
-                    categoryId: 2,
-                    amount: 12500,
-                    description: 'Supermercado',
-                    date: '2026-09-21',
-                    status: 'CONFIRMED'
-                },
-                {
-                    id: 3,
-                    type: 'EXPENSE',
-                    sourceId: 3,
-                    categoryId: 3,
-                    amount: 2800,
-                    description: 'Subte y colectivo',
-                    date: '2026-09-21',
-                    status: 'CONFIRMED'
-                },
-                {
-                    id: 4,
-                    type: 'EXPENSE',
-                    sourceId: 1,
-                    categoryId: 4,
-                    amount: 5600,
-                    description: 'Netflix subscription',
-                    date: '2026-09-20',
-                    status: 'CONFIRMED'
-                },
-                {
-                    id: 5,
-                    type: 'INCOME',
-                    sourceId: 3,
-                    categoryId: 5,
-                    amount: 5000,
-                    description: 'Freelance diseño',
-                    date: '2026-09-19',
-                    status: 'CONFIRMED'
+            });
+        }
+
+        // Create category modal form
+        const createModalForm = document.getElementById('category-create-modal-form');
+        if (createModalForm) {
+            createModalForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                const button = createModalForm.querySelector('button[type="submit"]');
+                button.disabled = true;
+                try {
+                    await PecusApi.createCategory({
+                        name: document.getElementById('modal-category-name').value.trim(),
+                        type: document.getElementById('modal-category-type').value,
+                        icon: document.getElementById('modal-category-icon').value.trim() || 'tag',
+                        color: document.getElementById('modal-category-color').value.trim() || '#6c757d',
+                    });
+                    Toast?.show('Categoría creada.', 'success');
+                    bootstrap.Modal.getInstance(document.getElementById('category-create-modal'))?.hide();
+                    await this.loadProtectedData();
+                    this.renderPage('categories');
+                } catch (error) {
+                    Toast?.show(error.message || 'No se pudo crear la categoría.', 'error');
+                } finally {
+                    button.disabled = false;
                 }
-            ],
-            categories: [
-                {
-                    id: 1,
-                    name: 'Sueldo',
-                    type: 'INCOME',
-                    icon: 'banknote',
-                    color: '#28a745'
-                },
-                {
-                    id: 2,
-                    name: 'Alimentación',
-                    type: 'EXPENSE',
-                    icon: 'utensils',
-                    color: '#dc3545'
-                },
-                {
-                    id: 3,
-                    name: 'Transporte',
-                    type: 'EXPENSE',
-                    icon: 'car',
-                    color: '#ffc107'
-                },
-                {
-                    id: 4,
-                    name: 'Entretenimiento',
-                    type: 'EXPENSE',
-                    icon: 'clapperboard',
-                    color: '#17a2b8'
-                },
-                {
-                    id: 5,
-                    name: 'Freelance',
-                    type: 'INCOME',
-                    icon: 'briefcase',
-                    color: '#20c997'
+            });
+        }
+
+        // Edit category modal form
+        const editModalForm = document.getElementById('category-edit-modal-form');
+        if (editModalForm) {
+            editModalForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                const button = editModalForm.querySelector('button[type="submit"]');
+                const categoryId = document.getElementById('modal-category-edit-id').value;
+                button.disabled = true;
+                try {
+                    await PecusApi.updateCategory(categoryId, {
+                        name: document.getElementById('modal-category-edit-name').value.trim(),
+                        type: document.getElementById('modal-category-edit-type').value,
+                        icon: document.getElementById('modal-category-edit-icon').value.trim() || 'tag',
+                        color: document.getElementById('modal-category-edit-color').value.trim() || '#6c757d',
+                    });
+                    Toast?.show('Categoría actualizada.', 'success');
+                    bootstrap.Modal.getInstance(document.getElementById('category-edit-modal'))?.hide();
+                    await this.loadProtectedData();
+                    this.renderPage('categories');
+                } catch (error) {
+                    Toast?.show(error.message || 'No se pudo actualizar la categoría.', 'error');
+                } finally {
+                    button.disabled = false;
                 }
-            ],
-            notifications: [
-                {
-                    id: 1,
-                    type: 'success',
-                    title: 'Comprobante procesado',
-                    message: 'El comprobante del supermercado ha sido procesado correctamente.',
-                    time: 'Hoy, 10:30',
-                    read: false
-                },
-                {
-                    id: 2,
-                    type: 'warning',
-                    title: 'Presupuesto próximo al límite',
-                    message: 'Has usado el 80% de tu presupuesto de alimentación.',
-                    time: 'Ayer, 18:45',
-                    read: false
-                },
-                {
-                    id: 3,
-                    type: 'info',
-                    title: 'Progreso de meta',
-                    message: 'Has alcanzado el 60% de tu meta de vacaciones.',
-                    time: 'Ayer, 14:20',
-                    read: true
+            });
+        }
+
+        // Delete category confirm
+        const deleteConfirmBtn = document.getElementById('category-delete-confirm-btn');
+        if (deleteConfirmBtn) {
+            deleteConfirmBtn.addEventListener('click', async () => {
+                const categoryId = deleteConfirmBtn.dataset.categoryId;
+                deleteConfirmBtn.disabled = true;
+                deleteConfirmBtn.textContent = 'Eliminando...';
+                try {
+                    await PecusApi.deleteCategory(categoryId);
+                    Toast?.show('Categoría eliminada.', 'success');
+                    bootstrap.Modal.getInstance(document.getElementById('category-delete-modal'))?.hide();
+                    await this.loadProtectedData();
+                    this.renderPage('categories');
+                } catch (error) {
+                    Toast?.show(error.message || 'No se pudo eliminar la categoría.', 'error');
+                } finally {
+                    deleteConfirmBtn.disabled = false;
+                    deleteConfirmBtn.textContent = 'Eliminar';
                 }
-            ]
-        };
+            });
+        }
+
+        // Edit/delete buttons
+        document.querySelectorAll('[data-category-edit]').forEach((button) => {
+            button.addEventListener('click', () => this.openCategoryEditModal(button.dataset.categoryEdit));
+        });
+
+        document.querySelectorAll('[data-category-delete]').forEach((button) => {
+            button.addEventListener('click', () => this.confirmCategoryDelete(button.dataset.categoryDelete));
+        });
+    }
+
+    setupMovementsPageEvents() {
+        const filterForm = document.getElementById('movements-filter-form');
+        if (filterForm) {
+            filterForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                await this.applyMovementFilters();
+            });
+        }
+
+        const clearBtn = document.getElementById('movements-clear-filters');
+        if (clearBtn) {
+            clearBtn.addEventListener('click', async () => {
+                document.getElementById('movements-filter-form')?.reset();
+                await this.applyMovementFilters();
+            });
+        }
+
+        const createBtn = document.getElementById('movement-create-btn');
+        if (createBtn) {
+            createBtn.addEventListener('click', () => this.openMovementCreateModal());
+        }
+
+        // Create movement modal form
+        const createModalForm = document.getElementById('movement-create-form');
+        if (createModalForm) {
+            createModalForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                const button = createModalForm.querySelector('button[type="submit"]');
+                button.disabled = true;
+                try {
+                    const formData = new FormData(createModalForm);
+                    const payload = {
+                        description: formData.get('description'),
+                        type: formData.get('type'),
+                        amount: Number(formData.get('amount')),
+                        currency: formData.get('currency'),
+                        operation_date: formData.get('operation_date'),
+                        source_id: Number(formData.get('source_id')),
+                        category_id: Number(formData.get('category_id')),
+                        notes: formData.get('notes') || '',
+                    };
+                    await PecusApi.createMovement(payload);
+                    Toast?.show('Movimiento creado.', 'success');
+                    bootstrap.Modal.getInstance(document.getElementById('movement-create-modal'))?.hide();
+                    await this.loadProtectedData();
+                    this.renderPage('movements');
+                } catch (error) {
+                    Toast?.show(error.message || 'No se pudo crear el movimiento.', 'error');
+                } finally {
+                    button.disabled = false;
+                }
+            });
+        }
+
+        // Edit movement modal form
+        const editModalForm = document.getElementById('movement-edit-form');
+        if (editModalForm) {
+            editModalForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                const button = editModalForm.querySelector('button[type="submit"]');
+                const movementId = document.getElementById('movement-edit-id').value;
+                button.disabled = true;
+                try {
+                    const formData = new FormData(editModalForm);
+                    const payload = {
+                        description: formData.get('description'),
+                        type: formData.get('type'),
+                        amount: Number(formData.get('amount')),
+                        currency: formData.get('currency'),
+                        operation_date: formData.get('operation_date'),
+                        source_id: Number(formData.get('source_id')),
+                        category_id: Number(formData.get('category_id')),
+                        notes: formData.get('notes') || '',
+                    };
+                    await PecusApi.updateMovement(movementId, payload);
+                    Toast?.show('Movimiento actualizado.', 'success');
+                    bootstrap.Modal.getInstance(document.getElementById('movement-edit-modal'))?.hide();
+                    await this.loadProtectedData();
+                    this.renderPage('movements');
+                } catch (error) {
+                    Toast?.show(error.message || 'No se pudo actualizar el movimiento.', 'error');
+                } finally {
+                    button.disabled = false;
+                }
+            });
+        }
+
+        // Delete movement confirm
+        const deleteConfirmBtn = document.getElementById('movement-delete-confirm-btn');
+        if (deleteConfirmBtn) {
+            deleteConfirmBtn.addEventListener('click', async () => {
+                const movementId = deleteConfirmBtn.dataset.movementId;
+                deleteConfirmBtn.disabled = true;
+                deleteConfirmBtn.textContent = 'Eliminando...';
+                try {
+                    await PecusApi.deleteMovement(movementId);
+                    Toast?.show('Movimiento eliminado.', 'success');
+                    bootstrap.Modal.getInstance(document.getElementById('movement-delete-modal'))?.hide();
+                    await this.loadProtectedData();
+                    this.renderPage('movements');
+                } catch (error) {
+                    Toast?.show(error.message || 'No se pudo eliminar el movimiento.', 'error');
+                } finally {
+                    deleteConfirmBtn.disabled = false;
+                    deleteConfirmBtn.textContent = 'Eliminar';
+                }
+            });
+        }
+
+        // Edit/delete buttons
+        document.querySelectorAll('[data-movement-edit]').forEach((button) => {
+            button.addEventListener('click', () => this.openMovementEditModal(button.dataset.movementEdit));
+        });
+
+        document.querySelectorAll('[data-movement-delete]').forEach((button) => {
+            button.addEventListener('click', () => this.confirmMovementDelete(button.dataset.movementDelete));
+        });
+    }
+
+    setupDashboardPageEvents() {
+        document.querySelectorAll('.period-btn').forEach((button) => {
+            button.addEventListener('click', async () => {
+                document.querySelectorAll('.period-btn').forEach(btn => btn.classList.remove('active'));
+                button.classList.add('active');
+                const period = button.dataset.period;
+                await this.loadDashboardData(period);
+            });
+        });
+
+        const customForm = document.getElementById('dashboard-custom-period-form');
+        if (customForm) {
+            customForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                const startDate = document.getElementById('dashboard-start-date').value;
+                const endDate = document.getElementById('dashboard-end-date').value;
+                if (startDate && endDate) {
+                    await this.loadDashboardData('custom', startDate, endDate);
+                }
+            });
+        }
+    }
+
+    async loadDashboardData(period = 'month', startDate = null, endDate = null) {
+        try {
+            const params = { period };
+            if (startDate && endDate) {
+                params.start_date = startDate;
+                params.end_date = endDate;
+            }
+            const data = await PecusApi.getDashboard(params);
+            this.state.dashboard = data;
+            this.renderPage('dashboard');
+        } catch (error) {
+            Toast?.show(error.message || 'No se pudo cargar el dashboard.', 'error');
+        }
+    }
+
+    async applyMovementFilters() {
+        const form = document.getElementById('movements-filter-form');
+        if (!form) return;
+
+        const formData = new FormData(form);
+        const params = {};
+        for (const [key, value] of formData.entries()) {
+            if (value) params[key] = value;
+        }
+
+        try {
+            const movements = await PecusApi.getMovements(params);
+            this.state.movements = Array.isArray(movements) ? movements : [];
+            this.renderPage('movements');
+        } catch (error) {
+            Toast?.show(error.message || 'No se pudieron filtrar los movimientos.', 'error');
+        }
+    }
+
+    // Modal Handler Methods
+    openCategoryEditModal(categoryId) {
+        const category = this.getCategoryById(Number(categoryId));
+        if (!category) return;
+
+        document.getElementById('modal-category-edit-id').value = category.id;
+        document.getElementById('modal-category-edit-name').value = category.name;
+        document.getElementById('modal-category-edit-type').value = category.type;
+        document.getElementById('modal-category-edit-icon').value = category.icon || 'tag';
+        document.getElementById('modal-category-edit-color').value = category.color || '#6c757d';
+
+        const modal = new bootstrap.Modal(document.getElementById('category-edit-modal'));
+        modal.show();
+    }
+
+    confirmCategoryDelete(categoryId) {
+        const category = this.getCategoryById(Number(categoryId));
+        if (!category) return;
+
+        document.getElementById('category-delete-preview').textContent = `Categoría: ${category.name} (${category.type === 'INCOME' ? 'Ingreso' : 'Gasto'})`;
+        document.getElementById('category-delete-confirm-btn').dataset.categoryId = categoryId;
+
+        const modal = new bootstrap.Modal(document.getElementById('category-delete-modal'));
+        modal.show();
+    }
+
+    openMovementCreateModal() {
+        // Reset form
+        document.getElementById('movement-create-form').reset();
+        document.getElementById('movement-date').valueAsDate = new Date();
+        document.getElementById('movement-currency').value = 'ARS';
+
+        // The modal is triggered by data-bs-toggle in the button
+    }
+
+    openMovementEditModal(movementId) {
+        const movement = (this.state.movements || []).find(m => Number(m.id) === Number(movementId));
+        if (!movement) return;
+
+        document.getElementById('movement-edit-id').value = movement.id;
+        document.getElementById('movement-edit-description').value = movement.description || '';
+        document.getElementById('movement-edit-type').value = movement.type;
+        document.getElementById('movement-edit-amount').value = movement.amount;
+        document.getElementById('movement-edit-currency').value = movement.currency || 'ARS';
+        document.getElementById('movement-edit-date').value = movement.operation_date || movement.date || '';
+        document.getElementById('movement-edit-source').value = movement.source_id || movement.sourceId || '';
+        document.getElementById('movement-edit-category').value = movement.category_id || movement.categoryId || '';
+        document.getElementById('movement-edit-notes').value = movement.notes || '';
+
+        const modal = new bootstrap.Modal(document.getElementById('movement-edit-modal'));
+        modal.show();
+    }
+
+    confirmMovementDelete(movementId) {
+        const movement = (this.state.movements || []).find(m => Number(m.id) === Number(movementId));
+        if (!movement) return;
+
+        const category = this.getCategoryById(Number(movement.category_id || movement.categoryId));
+        const categoryName = category?.name || 'Sin categoría';
+        const sourceName = this.getSourceById(Number(movement.source_id || movement.sourceId))?.name || 'Desconocido';
+
+        document.getElementById('movement-delete-preview').textContent = `${movement.description || 'Sin descripción'} - ${sourceName} - ${categoryName} - ${movement.type === 'INCOME' ? '+' : '-'}$${this.formatNumber(movement.amount)}`;
+        document.getElementById('movement-delete-confirm-btn').dataset.movementId = movementId;
+
+        const modal = new bootstrap.Modal(document.getElementById('movement-delete-modal'));
+        modal.show();
+    }
+
+    openSourceEditModal(sourceId) {
+        const source = this.getSourceById(Number(sourceId));
+        if (!source) return;
+
+        document.getElementById('modal-source-edit-id').value = source.id;
+        document.getElementById('modal-source-edit-name').value = source.name;
+        document.getElementById('modal-source-edit-type').value = source.type;
+        document.getElementById('modal-source-edit-currency').value = source.currency || 'ARS';
+        document.getElementById('modal-source-edit-initial-balance').value = source.initial_balance || 0;
+
+        const modal = new bootstrap.Modal(document.getElementById('source-edit-modal'));
+        modal.show();
+    }
+
+    confirmSourceDelete(sourceId) {
+        const source = this.getSourceById(Number(sourceId));
+        if (!source) return;
+
+        document.getElementById('source-delete-preview').textContent = `${source.name} (${this.getSourceTypeLabel(source.type)})`;
+        document.getElementById('source-delete-confirm-btn').dataset.sourceId = sourceId;
+
+        const modal = new bootstrap.Modal(document.getElementById('source-delete-modal'));
+        modal.show();
     }
 
     // Page Content Methods
     getDashboardContent() {
         const summary = this.getDashboardSummary();
-        const recentMovements = (this.state.dashboard?.recent_movements?.length ? this.state.dashboard.recent_movements : this.state.movements).slice(0, 6);
+        const recentMovements = (this.state.dashboard?.recent_movements || []).slice(0, 6);
+        const categoryDistribution = this.state.dashboard?.category_distribution || [];
+        const summaryError = this.state.errors.dashboard || (summary ? null : 'El resumen no está disponible.');
 
         return `
             <div class="container">
                 <div class="dashboard-header">
                     <h1 class="dashboard-title">Dashboard</h1>
                     <div class="dashboard-period-selector">
-                        <button class="period-btn active" data-period="month">Mes</button>
-                        <button class="period-btn" data-period="week">Semana</button>
-                        <button class="period-btn" data-period="year">Año</button>
-                        <button class="period-btn" data-period="custom">Personalizado</button>
+                        <button class="period-btn ${this.state.dashboard?.period_info?.period === 'month' ? 'active' : ''}" data-period="month">Mes</button>
+                        <button class="period-btn ${this.state.dashboard?.period_info?.period === 'week' ? 'active' : ''}" data-period="week">Semana</button>
+                        <button class="period-btn ${this.state.dashboard?.period_info?.period === 'year' ? 'active' : ''}" data-period="year">Año</button>
+                        <button class="period-btn ${this.state.dashboard?.period_info?.period === 'custom' ? 'active' : ''}" data-period="custom">Personalizado</button>
                     </div>
                 </div>
+
+                ${this.state.dashboard?.period_info?.period === 'custom' ? `
+                <div class="card mb-4" id="dashboard-custom-period-form">
+                    <div class="card-body">
+                        <form class="row g-3">
+                            <div class="col-md-5">
+                                <label for="dashboard-start-date" class="form-label">Desde</label>
+                                <input type="date" class="form-control" id="dashboard-start-date" value="${this.state.dashboard?.period_info?.start_date || ''}">
+                            </div>
+                            <div class="col-md-5">
+                                <label for="dashboard-end-date" class="form-label">Hasta</label>
+                                <input type="date" class="form-control" id="dashboard-end-date" value="${this.state.dashboard?.period_info?.end_date || ''}">
+                            </div>
+                            <div class="col-md-2 d-flex align-items-end">
+                                <button type="submit" class="btn btn-primary w-100">Aplicar</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+                ` : ''}
 
                 <div class="dashboard-grid">
                     <div class="dashboard-card">
@@ -520,7 +895,7 @@ class PecusApp {
                             <div class="d-flex justify-content-between align-items-start">
                                 <div>
                                     <h6 class="card-title text-uppercase text-muted">Dinero disponible</h6>
-                                    <h3 class="card-text mb-0">$${this.formatNumber(summary.available)}</h3>
+                                    <h3 class="card-text mb-0">${summaryError ? '—' : `$${this.formatNumber(summary.available)}`}</h3>
                                 </div>
                                 <div class="icon-bg-primary">
                                     <i class="icon-lg" data-lucide="wallet"></i>
@@ -534,7 +909,7 @@ class PecusApp {
                             <div class="d-flex justify-content-between align-items-start">
                                 <div>
                                     <h6 class="card-title text-uppercase text-muted">Ingresos</h6>
-                                    <h3 class="card-text mb-0">$${this.formatNumber(summary.income)}</h3>
+                                    <h3 class="card-text mb-0">${summaryError ? '—' : `$${this.formatNumber(summary.income)}`}</h3>
                                 </div>
                                 <div class="icon-bg-success">
                                     <i class="icon-lg" data-lucide="trending-up"></i>
@@ -548,7 +923,7 @@ class PecusApp {
                             <div class="d-flex justify-content-between align-items-start">
                                 <div>
                                     <h6 class="card-title text-uppercase text-muted">Gastos</h6>
-                                    <h3 class="card-text mb-0">$${this.formatNumber(summary.expenses)}</h3>
+                                    <h3 class="card-text mb-0">${summaryError ? '—' : `$${this.formatNumber(summary.expenses)}`}</h3>
                                 </div>
                                 <div class="icon-bg-error">
                                     <i class="icon-lg" data-lucide="trending-down"></i>
@@ -562,7 +937,7 @@ class PecusApp {
                             <div class="d-flex justify-content-between align-items-start">
                                 <div>
                                     <h6 class="card-title text-uppercase text-muted">Balance</h6>
-                                    <h3 class="card-text mb-0">$${this.formatNumber(summary.balance)}</h3>
+                                    <h3 class="card-text mb-0">${summaryError ? '—' : `$${this.formatNumber(summary.balance)}`}</h3>
                                 </div>
                                 <div class="icon-bg-info">
                                     <i class="icon-lg" data-lucide="scale"></i>
@@ -571,6 +946,8 @@ class PecusApp {
                         </div>
                     </div>
                 </div>
+
+                ${summaryError ? `<div class="alert alert-danger" role="alert">No se pudo cargar el resumen: ${summaryError}</div>` : ''}
 
                 <div class="row mb-4">
                     <div class="col-12">
@@ -603,8 +980,9 @@ class PecusApp {
                 <div class="row">
                     <div class="col-lg-8">
                         <div class="card">
-                            <div class="card-header">
+                            <div class="card-header d-flex justify-content-between align-items-center">
                                 <h5 class="card-title mb-0">Movimientos recientes</h5>
+                                <a href="movements.html" class="btn btn-outline btn-sm">Ver todos</a>
                             </div>
                             <div class="card-body p-0">
                                 <div class="table-responsive">
@@ -619,7 +997,7 @@ class PecusApp {
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            ${recentMovements.map((mov) => {
+                                            ${this.state.errors.dashboard ? `<tr><td colspan="5" class="text-center py-4 text-danger">No se pudieron cargar los movimientos recientes.</td></tr>` : recentMovements.map((mov) => {
                                                 const sourceName = mov.source?.name || this.getSourceById(Number(mov.source_id || mov.sourceId))?.name || 'Desconocido';
                                                 const category = mov.category || this.getCategoryById(Number(mov.category_id || mov.categoryId));
                                                 const categoryName = category?.name || 'Sin categoría';
@@ -633,7 +1011,7 @@ class PecusApp {
                                                             <span class="badge" style="background:${categoryColor};color:white;">${categoryName}</span>
                                                         </td>
                                                         <td class="text-end ${mov.type === 'INCOME' ? 'text-success' : 'text-error'}">
-                                                            ${mov.type === 'INCOME' ? '+' : '-'}$${this.formatNumber(mov.amount || 0)}
+                                                            ${mov.type === 'INCOME' ? '+' : '-'}$${this.formatNumber(mov.amount)}
                                                         </td>
                                                     </tr>
                                                 `;
@@ -650,7 +1028,63 @@ class PecusApp {
                                 <h5 class="card-title mb-0">Gastos por categoría</h5>
                             </div>
                             <div class="card-body">
-                                <canvas id="expensesChart" height="150"></canvas>
+                                ${categoryDistribution.length ? categoryDistribution.map(cat => `
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <div>
+                                            <span class="badge me-2" style="background:${cat.color || '#6c757d'};color:white;">${cat.category}</span>
+                                        </div>
+                                        <div class="text-end">
+                                            <div>$${this.formatNumber(cat.amount)}</div>
+                                            <small class="text-muted">${cat.percentage}%</small>
+                                        </div>
+                                    </div>
+                                `).join('') : '<p class="text-muted mb-0">No hay datos de gastos para este período.</p>'}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row mt-4">
+                    <div class="col-lg-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="card-title mb-0">Saldos por fuente</h5>
+                            </div>
+                            <div class="card-body">
+                                ${(this.state.dashboard?.sources || []).length ? (this.state.dashboard?.sources || []).map(source => `
+                                    <div class="d-flex justify-content-between align-items-center mb-2 p-2 border-bottom">
+                                        <div>
+                                            <i class="me-2" data-lucide="${source.type === 'BANK' ? 'building-2' : source.type === 'CREDIT_CARD' ? 'credit-card' : source.type === 'CASH' ? 'banknote' : 'wallet'}"></i>
+                                            <span>${source.name}</span>
+                                        </div>
+                                        <div class="text-end ${(source.current_balance ?? source.initial_balance ?? 0) >= 0 ? 'text-success' : 'text-error'}">
+                                            $${this.formatNumber(Math.abs(source.current_balance ?? source.initial_balance ?? 0))}
+                                        </div>
+                                    </div>
+                                `).join('') : '<p class="text-muted mb-0">No hay fuentes configuradas.</p>'}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="card-title mb-0">Resumen del período</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="row text-center">
+                                    <div class="col-4">
+                                        <div class="text-success">+$${this.formatNumber(summary?.income || 0)}</div>
+                                        <small class="text-muted">Ingresos</small>
+                                    </div>
+                                    <div class="col-4">
+                                        <div class="text-error">-$${this.formatNumber(summary?.expenses || 0)}</div>
+                                        <small class="text-muted">Gastos</small>
+                                    </div>
+                                    <div class="col-4">
+                                        <div class="${(summary?.balance || 0) >= 0 ? 'text-success' : 'text-error'}">$${this.formatNumber(summary?.balance || 0)}</div>
+                                        <small class="text-muted">Balance</small>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -664,27 +1098,67 @@ class PecusApp {
 
         return `
             <div class="container">
-                <div class="dashboard-header mb-4">
-                    <h1 class="dashboard-title">Movimientos</h1>
+                <div class="dashboard-header mb-4 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <h1 class="dashboard-title mb-0">Movimientos</h1>
+                    <button type="button" class="btn btn-primary" id="movement-create-btn" data-bs-toggle="modal" data-bs-target="#movement-create-modal">
+                        <i class="me-2" data-lucide="plus"></i> Nuevo movimiento
+                    </button>
                 </div>
 
                 <div class="row mb-4">
                     <div class="col-12">
-                        <div class="movements-filter">
-                            <input type="text" class="form-control filter-input" placeholder="Buscar movimientos...">
-                            <select class="form-select filter-select">
-                                <option value="all">Todas las categorías</option>
-                                ${this.state.categories.map(cat => `<option value="${cat.id}">${cat.name}</option>`).join('')}
-                            </select>
-                            <select class="form-select filter-select">
-                                <option value="all">Todos los tipos</option>
-                                <option value="INCOME">Ingresos</option>
-                                <option value="EXPENSE">Gastos</option>
-                                <option value="INTERNAL_TRANSFER">Transferencias internas</option>
-                                <option value="EXTERNAL_TRANSFER">Transferencias externas</option>
-                                <option value="REFUND">Reintegros</option>
-                            </select>
-                            <button class="btn btn-outline filter-btn">Filtrar</button>
+                        <div class="card">
+                            <div class="card-body">
+                                <form id="movements-filter-form" class="row g-3">
+                                    <div class="col-md-3">
+                                        <label for="movement-search" class="form-label">Buscar</label>
+                                        <input type="text" class="form-control" id="movement-search" name="search" placeholder="Descripción...">
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label for="movement-category" class="form-label">Categoría</label>
+                                        <select class="form-select" id="movement-category" name="category_id">
+                                            <option value="">Todas</option>
+                                            ${this.state.categories.map(cat => `<option value="${cat.id}">${cat.name}</option>`).join('')}
+                                        </select>
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label for="movement-type" class="form-label">Tipo</label>
+                                        <select class="form-select" id="movement-type" name="type">
+                                            <option value="">Todos</option>
+                                            <option value="INCOME">Ingresos</option>
+                                            <option value="EXPENSE">Gastos</option>
+                                            <option value="INTERNAL_TRANSFER">Transferencias internas</option>
+                                            <option value="EXTERNAL_TRANSFER">Transferencias externas</option>
+                                            <option value="REFUND">Reintegros</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label for="movement-source" class="form-label">Fuente</label>
+                                        <select class="form-select" id="movement-source" name="source_id">
+                                            <option value="">Todas</option>
+                                            ${this.state.sources.map(src => `<option value="${src.id}">${src.name}</option>`).join('')}
+                                        </select>
+                                    </div>
+                                    <div class="col-md-1">
+                                        <label for="movement-date-from" class="form-label">Desde</label>
+                                        <input type="date" class="form-control" id="movement-date-from" name="date_from">
+                                    </div>
+                                    <div class="col-md-1">
+                                        <label for="movement-date-to" class="form-label">Hasta</label>
+                                        <input type="date" class="form-control" id="movement-date-to" name="date_to">
+                                    </div>
+                                    <div class="col-12">
+                                        <div class="d-flex gap-2">
+                                            <button type="submit" class="btn btn-primary">
+                                                <i class="me-2" data-lucide="filter"></i> Filtrar
+                                            </button>
+                                            <button type="button" class="btn btn-outline" id="movements-clear-filters">
+                                                <i class="me-2" data-lucide="x"></i> Limpiar
+                                            </button>
+                                        </div>
+                                    </div>
+                                </form>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -706,27 +1180,193 @@ class PecusApp {
                                                 <th>Categoría</th>
                                                 <th>Tipo</th>
                                                 <th>Monto</th>
+                                                <th class="text-end">Acciones</th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            ${movements.map((mov) => {
+                                            ${this.state.errors.movements ? `<tr><td colspan="7" class="text-center py-4 text-danger">No se pudieron cargar los movimientos.</td></tr>` : movements.map((mov) => {
                                                 const sourceName = mov.source?.name || this.getSourceById(Number(mov.source_id || mov.sourceId))?.name || 'Desconocido';
                                                 const category = mov.category || this.getCategoryById(Number(mov.category_id || mov.categoryId));
                                                 const categoryName = category?.name || 'Sin categoría';
+                                                const categoryColor = category?.color || '#6c757d';
                                                 return `
                                                     <tr>
                                                         <td>${this.formatDate(mov.operation_date || mov.date)}</td>
                                                         <td>${mov.description || 'Sin descripción'}</td>
                                                         <td>${sourceName}</td>
-                                                        <td><span class="badge" style="background:${category?.color || '#6c757d'};color:white;">${categoryName}</span></td>
+                                                        <td><span class="badge" style="background:${categoryColor};color:white;">${categoryName}</span></td>
                                                         <td><span class="badge bg-${mov.type === 'INCOME' ? 'success' : mov.type === 'EXPENSE' ? 'danger' : 'info'}">${this.getMovementTypeLabel(mov.type)}</span></td>
-                                                        <td class="text-end ${mov.type === 'INCOME' ? 'text-success' : 'text-error'}">${mov.type === 'INCOME' ? '+' : '-'}$${this.formatNumber(mov.amount || 0)}</td>
+                                                        <td class="text-end ${mov.type === 'INCOME' ? 'text-success' : 'text-error'}">${mov.type === 'INCOME' ? '+' : '-'}$${this.formatNumber(mov.amount)}</td>
+                                                        <td class="text-end">
+                                                            <div class="btn-group btn-group-sm" role="group">
+                                                                <button type="button" class="btn btn-outline" data-movement-edit="${mov.id}" title="Editar">
+                                                                    <i data-lucide="edit-2"></i>
+                                                                </button>
+                                                                <button type="button" class="btn btn-outline text-error" data-movement-delete="${mov.id}" title="Eliminar">
+                                                                    <i data-lucide="trash-2"></i>
+                                                                </button>
+                                                            </div>
+                                                        </td>
                                                     </tr>
                                                 `;
-                                            }).join('') || '<tr><td colspan="6" class="text-center py-4">No hay movimientos para mostrar.</td></tr>'}
+                                            }).join('') || '<tr><td colspan="7" class="text-center py-4">No hay movimientos para mostrar.</td></tr>'}
                                         </tbody>
                                     </table>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Create Movement Modal -->
+                <div class="modal fade" id="movement-create-modal" tabindex="-1" aria-labelledby="movement-create-modal-label" aria-hidden="true">
+                    <div class="modal-dialog modal-lg">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="movement-create-modal-label">Nuevo movimiento</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <form id="movement-create-form">
+                                <div class="modal-body">
+                                    <div class="row g-3">
+                                        <div class="col-md-6">
+                                            <label for="movement-description" class="form-label">Descripción</label>
+                                            <input type="text" class="form-control" id="movement-description" name="description" required maxlength="255">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label for="movement-type-create" class="form-label">Tipo</label>
+                                            <select class="form-select" id="movement-type-create" name="type" required>
+                                                <option value="">Seleccioná un tipo</option>
+                                                <option value="INCOME">Ingreso</option>
+                                                <option value="EXPENSE">Gasto</option>
+                                                <option value="INTERNAL_TRANSFER">Transferencia interna</option>
+                                                <option value="EXTERNAL_TRANSFER">Transferencia externa</option>
+                                                <option value="REFUND">Reintegro</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label for="movement-amount" class="form-label">Monto</label>
+                                            <input type="number" class="form-control" id="movement-amount" name="amount" min="0.01" step="0.01" required>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label for="movement-currency" class="form-label">Moneda</label>
+                                            <input type="text" class="form-control" id="movement-currency" name="currency" maxlength="3" placeholder="ARS" required value="ARS">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label for="movement-date" class="form-label">Fecha</label>
+                                            <input type="date" class="form-control" id="movement-date" name="operation_date" required>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label for="movement-source" class="form-label">Fuente</label>
+                                            <select class="form-select" id="movement-source" name="source_id" required>
+                                                <option value="">Seleccioná una fuente</option>
+                                                ${this.state.sources.map(src => `<option value="${src.id}">${src.name}</option>`).join('')}
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label for="movement-category" class="form-label">Categoría</label>
+                                            <select class="form-select" id="movement-category" name="category_id" required>
+                                                <option value="">Seleccioná una categoría</option>
+                                                ${this.state.categories.map(cat => `<option value="${cat.id}">${cat.name}</option>`).join('')}
+                                            </select>
+                                        </div>
+                                        <div class="col-12">
+                                            <label for="movement-notes" class="form-label">Notas (opcional)</label>
+                                            <textarea class="form-control" id="movement-notes" name="notes" rows="3"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-outline" data-bs-dismiss="modal">Cancelar</button>
+                                    <button type="submit" class="btn btn-primary">Guardar movimiento</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Edit Movement Modal -->
+                <div class="modal fade" id="movement-edit-modal" tabindex="-1" aria-labelledby="movement-edit-modal-label" aria-hidden="true">
+                    <div class="modal-dialog modal-lg">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="movement-edit-modal-label">Editar movimiento</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <form id="movement-edit-form">
+                                <div class="modal-body">
+                                    <input type="hidden" id="movement-edit-id" name="id">
+                                    <div class="row g-3">
+                                        <div class="col-md-6">
+                                            <label for="movement-edit-description" class="form-label">Descripción</label>
+                                            <input type="text" class="form-control" id="movement-edit-description" name="description" required maxlength="255">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label for="movement-edit-type" class="form-label">Tipo</label>
+                                            <select class="form-select" id="movement-edit-type" name="type" required>
+                                                <option value="INCOME">Ingreso</option>
+                                                <option value="EXPENSE">Gasto</option>
+                                                <option value="INTERNAL_TRANSFER">Transferencia interna</option>
+                                                <option value="EXTERNAL_TRANSFER">Transferencia externa</option>
+                                                <option value="REFUND">Reintegro</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label for="movement-edit-amount" class="form-label">Monto</label>
+                                            <input type="number" class="form-control" id="movement-edit-amount" name="amount" min="0.01" step="0.01" required>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label for="movement-edit-currency" class="form-label">Moneda</label>
+                                            <input type="text" class="form-control" id="movement-edit-currency" name="currency" maxlength="3" placeholder="ARS" required value="ARS">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label for="movement-edit-date" class="form-label">Fecha</label>
+                                            <input type="date" class="form-control" id="movement-edit-date" name="operation_date" required>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label for="movement-edit-source" class="form-label">Fuente</label>
+                                            <select class="form-select" id="movement-edit-source" name="source_id" required>
+                                                <option value="">Seleccioná una fuente</option>
+                                                ${this.state.sources.map(src => `<option value="${src.id}">${src.name}</option>`).join('')}
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label for="movement-edit-category" class="form-label">Categoría</label>
+                                            <select class="form-select" id="movement-edit-category" name="category_id" required>
+                                                <option value="">Seleccioná una categoría</option>
+                                                ${this.state.categories.map(cat => `<option value="${cat.id}">${cat.name}</option>`).join('')}
+                                            </select>
+                                        </div>
+                                        <div class="col-12">
+                                            <label for="movement-edit-notes" class="form-label">Notas (opcional)</label>
+                                            <textarea class="form-control" id="movement-edit-notes" name="notes" rows="3"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-outline" data-bs-dismiss="modal">Cancelar</button>
+                                    <button type="submit" class="btn btn-primary">Guardar cambios</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Delete Movement Confirmation Modal -->
+                <div class="modal fade" id="movement-delete-modal" tabindex="-1" aria-labelledby="movement-delete-modal-label" aria-hidden="true">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="movement-delete-modal-label">Eliminar movimiento</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                <p>¿Estás seguro de que querés eliminar este movimiento? Esta acción no se puede deshacer.</p>
+                                <p class="text-muted" id="movement-delete-preview"></p>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-outline" data-bs-dismiss="modal">Cancelar</button>
+                                <button type="button" class="btn btn-error" id="movement-delete-confirm-btn">Eliminar</button>
                             </div>
                         </div>
                     </div>
@@ -737,8 +1377,9 @@ class PecusApp {
 
     getReceiptsContent() {
         const receipts = this.state.receipts || [];
-        const latestProcessed = receipts.find((receipt) => receipt.status === 'PROCESSED' || receipt.status === 'CONFIRMED') || receipts[0];
-        const extracted = latestProcessed?.extracted_data || {};
+        const pendingReceipt = receipts.find((receipt) => receipt.status !== 'CONFIRMED');
+        const legacyProcessed = ['PROCESSING', 'PROCESSED'].includes(pendingReceipt?.status);
+        const extracted = legacyProcessed ? {} : (pendingReceipt?.extracted_data || {});
 
         return `
             <div class="container">
@@ -765,23 +1406,25 @@ class PecusApp {
                     </div>
                 </div>
 
-                ${latestProcessed && Object.keys(extracted).length ? `
+                ${pendingReceipt ? `
                     <div class="row mb-4">
                         <div class="col-12">
                             <div class="card">
                                 <div class="card-header">
-                                    <h5 class="card-title mb-0">Revisar datos extraídos</h5>
+                                    <h5 class="card-title mb-0">Completar datos manualmente</h5>
                                 </div>
                                 <div class="card-body">
-                                    <form id="receipt-review-form" data-receipt-id="${latestProcessed.id}">
+                                    <p class="text-muted">PECUS guardó el archivo, pero todavía no extrae información. Revisá el comprobante y cargá sus datos.</p>
+                                    <button type="button" class="btn btn-outline btn-sm mb-3" data-receipt-file="${pendingReceipt.id}">Abrir ${pendingReceipt.file_name}</button>
+                                    <form id="receipt-review-form" data-receipt-id="${pendingReceipt.id}">
                                         <div class="row g-3">
                                             <div class="col-md-3">
                                                 <label class="form-label">Monto</label>
-                                                <input id="review-amount" class="form-control" value="${extracted.amount || ''}">
+                                                <input id="review-amount" type="number" min="0.01" step="0.01" required class="form-control" value="${extracted.amount ?? ''}">
                                             </div>
                                             <div class="col-md-3">
                                                 <label class="form-label">Fecha</label>
-                                                <input id="review-date" type="date" class="form-control" value="${extracted.date || ''}">
+                                                <input id="review-date" type="date" required class="form-control" value="${extracted.date || ''}">
                                             </div>
                                             <div class="col-md-3">
                                                 <label class="form-label">Comercio</label>
@@ -789,7 +1432,7 @@ class PecusApp {
                                             </div>
                                             <div class="col-md-3">
                                                 <label class="form-label">Moneda</label>
-                                                <input id="review-currency" class="form-control" value="${extracted.currency || 'ARS'}">
+                                                <input id="review-currency" maxlength="3" required class="form-control" placeholder="Ej.: ARS" value="${extracted.currency || ''}">
                                             </div>
                                             <div class="col-md-6">
                                                 <label class="form-label">Descripción</label>
@@ -797,27 +1440,30 @@ class PecusApp {
                                             </div>
                                             <div class="col-md-3">
                                                 <label class="form-label">Tipo</label>
-                                                <select id="review-operation-type" class="form-select">
+                                                <select id="review-operation-type" class="form-select" required>
+                                                    <option value="" ${extracted.operation_type ? '' : 'selected'}>Seleccioná un tipo</option>
                                                     <option value="EXPENSE" ${extracted.operation_type === 'EXPENSE' ? 'selected' : ''}>Gasto</option>
                                                     <option value="INCOME" ${extracted.operation_type === 'INCOME' ? 'selected' : ''}>Ingreso</option>
                                                 </select>
                                             </div>
                                             <div class="col-md-3">
                                                 <label class="form-label">Fuente</label>
-                                                <select id="review-source" class="form-select">
+                                                <select id="review-source" class="form-select" required>
+                                                    <option value="">Seleccioná una fuente</option>
                                                     ${this.state.sources.map((source) => `<option value="${source.id}" ${Number(extracted.source_id) === Number(source.id) ? 'selected' : ''}>${source.name}</option>`).join('')}
                                                 </select>
                                             </div>
                                             <div class="col-md-3">
                                                 <label class="form-label">Categoría</label>
-                                                <select id="review-category" class="form-select">
+                                                <select id="review-category" class="form-select" required>
+                                                    <option value="">Seleccioná una categoría</option>
                                                     ${this.state.categories.map((category) => `<option value="${category.id}" ${Number(extracted.category_id) === Number(category.id) ? 'selected' : ''}>${category.name}</option>`).join('')}
                                                 </select>
                                             </div>
                                         </div>
                                         <div class="d-flex gap-2 mt-3">
                                             <button type="submit" class="btn btn-primary">Guardar revisión</button>
-                                            <button type="button" class="btn btn-success" id="receipt-confirm-button" data-receipt-id="${latestProcessed.id}">Confirmar comprobante</button>
+                                            ${pendingReceipt.status === 'REQUIRES_REVIEW' ? `<button type="button" class="btn btn-success" id="receipt-confirm-button" data-receipt-id="${pendingReceipt.id}">Crear movimiento</button>` : ''}
                                         </div>
                                     </form>
                                 </div>
@@ -828,6 +1474,7 @@ class PecusApp {
 
                 <div class="row">
                     <div class="col-12">
+                        ${this.state.errors.receipts ? `<div class="alert alert-danger">No se pudieron cargar los comprobantes: ${this.state.errors.receipts}</div>` : ''}
                         <div class="card">
                             <div class="card-header">
                                 <h5 class="card-title mb-0">Comprobantes recientes</h5>
@@ -841,17 +1488,17 @@ class PecusApp {
                                                 <th>Comercio</th>
                                                 <th>Monto</th>
                                                 <th>Estado</th>
-                                                <th>Confianza</th>
+                                                <th>Archivo</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             ${receipts.length ? receipts.map((receipt) => `
                                                 <tr>
-                                                    <td>${this.formatDate(receipt.created_at || new Date().toISOString())}</td>
+                                                    <td>${this.formatDate(receipt.created_at)}</td>
                                                     <td>${receipt.extracted_data?.merchant || receipt.file_name || 'Sin nombre'}</td>
-                                                    <td>$${this.formatNumber(Number(receipt.extracted_data?.amount || 0))}</td>
-                                                    <td><span class="badge bg-${receipt.status === 'CONFIRMED' ? 'success' : receipt.status === 'PROCESSED' ? 'warning' : 'secondary'}">${receipt.status}</span></td>
-                                                    <td>${receipt.confidence || 'HIGH'}</td>
+                                                    <td>${receipt.extracted_data?.amount ? `$${this.formatNumber(Number(receipt.extracted_data.amount))}` : 'Pendiente de carga manual'}</td>
+                                                    <td><span class="badge bg-${receipt.status === 'CONFIRMED' ? 'success' : 'secondary'}">${receipt.status === 'CONFIRMED' ? 'Movimiento creado' : receipt.status === 'REQUIRES_REVIEW' ? 'Revisión manual completa' : ['PROCESSING', 'PROCESSED'].includes(receipt.status) ? 'Requiere nueva revisión manual' : 'Archivo recibido'}</span></td>
+                                                    <td><button type="button" class="btn btn-outline btn-sm" data-receipt-file="${receipt.id}">Abrir archivo</button></td>
                                                 </tr>
                                             `).join('') : '<tr><td colspan="5" class="text-center py-4">Todavía no hay comprobantes cargados.</td></tr>'}
                                         </tbody>
@@ -868,15 +1515,29 @@ class PecusApp {
     getSourcesContent() {
         return `
             <div class="container">
-                <div class="dashboard-header mb-4">
-                    <h1 class="dashboard-title">Fuentes</h1>
+                <div class="dashboard-header mb-4 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <h1 class="dashboard-title mb-0">Fuentes</h1>
+                    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#source-create-modal">
+                        <i class="me-2" data-lucide="plus"></i> Nueva fuente
+                    </button>
                 </div>
 
                 <div class="row mb-4">
-                    <div class="col-12 text-end">
-                        <button class="btn btn-outline">
-                            <i class="me-2" data-lucide="plus"></i> Nueva fuente
-                        </button>
+                    <div class="col-12">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="card-title mb-0">Agregar fuente</h5>
+                            </div>
+                            <div class="card-body">
+                                <form id="source-create-form" class="row g-3">
+                                    <div class="col-md-3"><label for="source-name" class="form-label">Nombre</label><input id="source-name" class="form-control" name="name" required maxlength="255"></div>
+                                    <div class="col-md-3"><label for="source-type" class="form-label">Tipo</label><select id="source-type" class="form-select" name="type" required><option value="">Seleccioná un tipo</option><option value="BANK">Banco</option><option value="CREDIT_CARD">Tarjeta de crédito</option><option value="WALLET">Billetera virtual</option><option value="CASH">Efectivo</option><option value="OTHER">Otro</option></select></div>
+                                    <div class="col-md-2"><label for="source-currency" class="form-label">Moneda</label><input id="source-currency" class="form-control" name="currency" maxlength="3" placeholder="ARS" required value="ARS"></div>
+                                    <div class="col-md-2"><label for="source-initial-balance" class="form-label">Saldo inicial</label><input id="source-initial-balance" type="number" class="form-control" name="initial_balance" min="0" step="0.01" required></div>
+                                    <div class="col-md-2 d-flex align-items-end"><button type="submit" class="btn btn-primary w-100">Guardar fuente</button></div>
+                                </form>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -887,30 +1548,146 @@ class PecusApp {
                                 <h5 class="card-title mb-0">Mis fuentes</h5>
                             </div>
                             <div class="card-body">
-                                ${this.state.sources.map((source) => {
+                                ${this.state.errors.sources ? `<div class="alert alert-danger">No se pudieron cargar las fuentes: ${this.state.errors.sources}</div>` : this.state.sources.map((source) => {
                                     const currentBalance = source.current_balance ?? source.initial_balance ?? 0;
                                     return `
-                                        <div class="source-card">
-                                            <div class="source-info">
-                                                <div class="source-icon">
+                                        <div class="source-card d-flex justify-content-between align-items-center p-3 border rounded mb-3">
+                                            <div class="source-info d-flex align-items-center">
+                                                <div class="source-icon me-3">
                                                     <i data-lucide="${source.type === 'BANK' ? 'building-2' : source.type === 'CREDIT_CARD' ? 'credit-card' : source.type === 'CASH' ? 'banknote' : 'wallet'}"></i>
                                                 </div>
                                                 <div class="source-details">
-                                                    <h6 class="source-name">${source.name}</h6>
-                                                    <small class="source-type">${this.getSourceTypeLabel(source.type)}</small>
+                                                    <h6 class="source-name mb-1">${source.name}</h6>
+                                                    <small class="source-type badge bg-secondary">${this.getSourceTypeLabel(source.type)}</small>
                                                 </div>
                                             </div>
-                                            <div class="source-balance ${currentBalance >= 0 ? 'text-success' : 'text-error'}">
-                                                $${this.formatNumber(Math.abs(currentBalance))}
-                                                ${currentBalance >= 0 ? '' : '(deuda)'}
-                                            </div>
-                                            <div class="source-actions">
-                                                <button class="btn btn-outline btn-sm" title="Editar"><i data-lucide="pencil"></i></button>
-                                                <button class="btn btn-outline btn-sm" title="Ver movimientos"><i data-lucide="arrow-left-right"></i></button>
+                                            <div class="d-flex align-items-center gap-3">
+                                                <div class="source-balance text-end ${currentBalance >= 0 ? 'text-success' : 'text-error'} me-3" style="min-width: 120px;">
+                                                    $${this.formatNumber(Math.abs(currentBalance))}
+                                                    ${currentBalance >= 0 ? '' : '(deuda)'}
+                                                </div>
+                                                <div class="btn-group btn-group-sm" role="group">
+                                                    <button type="button" class="btn btn-outline" data-source-edit="${source.id}" title="Editar">
+                                                        <i data-lucide="edit-2"></i>
+                                                    </button>
+                                                    <button type="button" class="btn btn-outline text-error" data-source-delete="${source.id}" title="Eliminar">
+                                                        <i data-lucide="trash-2"></i>
+                                                    </button>
+                                                </div>
                                             </div>
                                         </div>
                                     `;
                                 }).join('') || '<div class="text-center py-4">No hay fuentes cargadas.</div>'}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Create Source Modal -->
+                <div class="modal fade" id="source-create-modal" tabindex="-1" aria-labelledby="source-create-modal-label" aria-hidden="true">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="source-create-modal-label">Nueva fuente</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <form id="source-create-modal-form">
+                                <div class="modal-body">
+                                    <div class="row g-3">
+                                        <div class="col-12">
+                                            <label for="modal-source-name" class="form-label">Nombre</label>
+                                            <input type="text" class="form-control" id="modal-source-name" name="name" required maxlength="255">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label for="modal-source-type" class="form-label">Tipo</label>
+                                            <select class="form-select" id="modal-source-type" name="type" required>
+                                                <option value="">Seleccioná un tipo</option>
+                                                <option value="BANK">Banco</option>
+                                                <option value="CREDIT_CARD">Tarjeta de crédito</option>
+                                                <option value="WALLET">Billetera virtual</option>
+                                                <option value="CASH">Efectivo</option>
+                                                <option value="OTHER">Otro</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label for="modal-source-currency" class="form-label">Moneda</label>
+                                            <input type="text" class="form-control" id="modal-source-currency" name="currency" maxlength="3" placeholder="ARS" required value="ARS">
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label for="modal-source-initial-balance" class="form-label">Saldo inicial</label>
+                                            <input type="number" class="form-control" id="modal-source-initial-balance" name="initial_balance" min="0" step="0.01" required>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-outline" data-bs-dismiss="modal">Cancelar</button>
+                                    <button type="submit" class="btn btn-primary">Guardar fuente</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Edit Source Modal -->
+                <div class="modal fade" id="source-edit-modal" tabindex="-1" aria-labelledby="source-edit-modal-label" aria-hidden="true">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="source-edit-modal-label">Editar fuente</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <form id="source-edit-modal-form">
+                                <div class="modal-body">
+                                    <input type="hidden" id="modal-source-edit-id" name="id">
+                                    <div class="row g-3">
+                                        <div class="col-12">
+                                            <label for="modal-source-edit-name" class="form-label">Nombre</label>
+                                            <input type="text" class="form-control" id="modal-source-edit-name" name="name" required maxlength="255">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label for="modal-source-edit-type" class="form-label">Tipo</label>
+                                            <select class="form-select" id="modal-source-edit-type" name="type" required>
+                                                <option value="BANK">Banco</option>
+                                                <option value="CREDIT_CARD">Tarjeta de crédito</option>
+                                                <option value="WALLET">Billetera virtual</option>
+                                                <option value="CASH">Efectivo</option>
+                                                <option value="OTHER">Otro</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label for="modal-source-edit-currency" class="form-label">Moneda</label>
+                                            <input type="text" class="form-control" id="modal-source-edit-currency" name="currency" maxlength="3" placeholder="ARS" required value="ARS">
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label for="modal-source-edit-initial-balance" class="form-label">Saldo inicial</label>
+                                            <input type="number" class="form-control" id="modal-source-edit-initial-balance" name="initial_balance" min="0" step="0.01" required>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-outline" data-bs-dismiss="modal">Cancelar</button>
+                                    <button type="submit" class="btn btn-primary">Guardar cambios</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Delete Source Confirmation Modal -->
+                <div class="modal fade" id="source-delete-modal" tabindex="-1" aria-labelledby="source-delete-modal-label" aria-hidden="true">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="source-delete-modal-label">Eliminar fuente</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                <p>¿Estás seguro de que querés eliminar esta fuente? Esta acción no se puede deshacer.</p>
+                                <p class="text-muted" id="source-delete-preview"></p>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-outline" data-bs-dismiss="modal">Cancelar</button>
+                                <button type="button" class="btn btn-error" id="source-delete-confirm-btn">Eliminar</button>
                             </div>
                         </div>
                     </div>
@@ -922,15 +1699,47 @@ class PecusApp {
     getCategoriesContent() {
         return `
             <div class="container">
-                <div class="dashboard-header mb-4">
-                    <h1 class="dashboard-title">Categorías</h1>
+                <div class="dashboard-header mb-4 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <h1 class="dashboard-title mb-0">Categorías</h1>
+                    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#category-create-modal">
+                        <i class="me-2" data-lucide="plus"></i> Nueva categoría
+                    </button>
                 </div>
 
                 <div class="row mb-4">
-                    <div class="col-12 text-end">
-                        <button class="btn btn-outline">
-                            <i class="me-2" data-lucide="plus"></i> Nueva categoría
-                        </button>
+                    <div class="col-12">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="card-title mb-0">Crear nueva categoría</h5>
+                            </div>
+                            <div class="card-body">
+                                <form id="category-create-form" class="row g-3">
+                                    <div class="col-md-4">
+                                        <label for="category-name" class="form-label">Nombre</label>
+                                        <input type="text" class="form-control" id="category-name" name="name" required maxlength="255">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label for="category-type" class="form-label">Tipo</label>
+                                        <select class="form-select" id="category-type" name="type" required>
+                                            <option value="">Seleccioná un tipo</option>
+                                            <option value="EXPENSE">Gasto</option>
+                                            <option value="INCOME">Ingreso</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label for="category-icon" class="form-label">Icono</label>
+                                        <input type="text" class="form-control" id="category-icon" name="icon" placeholder="tag" value="tag">
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label for="category-color" class="form-label">Color</label>
+                                        <input type="color" class="form-control form-control-color" id="category-color" name="color" value="#6c757d" title="Elegí un color">
+                                    </div>
+                                    <div class="col-md-1 d-flex align-items-end">
+                                        <button type="submit" class="btn btn-primary w-100">Guardar</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -941,17 +1750,131 @@ class PecusApp {
                                 <h5 class="card-title mb-0">Mis categorías</h5>
                             </div>
                             <div class="card-body">
-                                <div class="category-grid">
-                                    ${this.state.categories.map((category) => `
-                                        <div class="category-card">
-                                            <div class="category-icon" style="background:${category.color || '#6c757d'};">
+                                ${this.state.errors.categories ? `<div class="alert alert-danger">No se pudieron cargar las categorías: ${this.state.errors.categories}</div>` : this.state.categories.map((category) => `
+                                    <div class="category-card d-flex justify-content-between align-items-center p-3 border rounded mb-3">
+                                        <div class="d-flex align-items-center">
+                                            <div class="category-icon me-3" style="background:${category.color || '#6c757d'};">
                                                 <i data-lucide="${category.icon || 'tag'}"></i>
                                             </div>
-                                            <h6 class="category-name">${category.name}</h6>
-                                            <small class="category-type">${category.type === 'INCOME' ? 'Ingreso' : 'Gasto'}</small>
+                                            <div>
+                                                <h6 class="category-name mb-1">${category.name}</h6>
+                                                <small class="category-type badge bg-${category.type === 'INCOME' ? 'success' : 'danger'}">${category.type === 'INCOME' ? 'Ingreso' : 'Gasto'}</small>
+                                            </div>
                                         </div>
-                                    `).join('') || '<div class="col-12 text-center py-4">No hay categorías cargadas.</div>'}
+                                        <div class="btn-group btn-group-sm" role="group">
+                                            <button type="button" class="btn btn-outline" data-category-edit="${category.id}" title="Editar">
+                                                <i data-lucide="edit-2"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-outline text-error" data-category-delete="${category.id}" title="Eliminar">
+                                                <i data-lucide="trash-2"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                `).join('') || '<div class="text-center py-4">No hay categorías cargadas.</div>'}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Create Category Modal -->
+                <div class="modal fade" id="category-create-modal" tabindex="-1" aria-labelledby="category-create-modal-label" aria-hidden="true">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="category-create-modal-label">Nueva categoría</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <form id="category-create-modal-form">
+                                <div class="modal-body">
+                                    <div class="row g-3">
+                                        <div class="col-12">
+                                            <label for="modal-category-name" class="form-label">Nombre</label>
+                                            <input type="text" class="form-control" id="modal-category-name" name="name" required maxlength="255">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label for="modal-category-type" class="form-label">Tipo</label>
+                                            <select class="form-select" id="modal-category-type" name="type" required>
+                                                <option value="">Seleccioná un tipo</option>
+                                                <option value="EXPENSE">Gasto</option>
+                                                <option value="INCOME">Ingreso</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label for="modal-category-icon" class="form-label">Icono</label>
+                                            <input type="text" class="form-control" id="modal-category-icon" name="icon" placeholder="tag" value="tag">
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label for="modal-category-color" class="form-label">Color</label>
+                                            <input type="color" class="form-control form-control-color" id="modal-category-color" name="color" value="#6c757d" title="Elegí un color">
+                                        </div>
+                                    </div>
                                 </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-outline" data-bs-dismiss="modal">Cancelar</button>
+                                    <button type="submit" class="btn btn-primary">Guardar categoría</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Edit Category Modal -->
+                <div class="modal fade" id="category-edit-modal" tabindex="-1" aria-labelledby="category-edit-modal-label" aria-hidden="true">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="category-edit-modal-label">Editar categoría</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <form id="category-edit-modal-form">
+                                <div class="modal-body">
+                                    <input type="hidden" id="modal-category-edit-id" name="id">
+                                    <div class="row g-3">
+                                        <div class="col-12">
+                                            <label for="modal-category-edit-name" class="form-label">Nombre</label>
+                                            <input type="text" class="form-control" id="modal-category-edit-name" name="name" required maxlength="255">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label for="modal-category-edit-type" class="form-label">Tipo</label>
+                                            <select class="form-select" id="modal-category-edit-type" name="type" required>
+                                                <option value="EXPENSE">Gasto</option>
+                                                <option value="INCOME">Ingreso</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label for="modal-category-edit-icon" class="form-label">Icono</label>
+                                            <input type="text" class="form-control" id="modal-category-edit-icon" name="icon" placeholder="tag" value="tag">
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label for="modal-category-edit-color" class="form-label">Color</label>
+                                            <input type="color" class="form-control form-control-color" id="modal-category-edit-color" name="color" value="#6c757d" title="Elegí un color">
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-outline" data-bs-dismiss="modal">Cancelar</button>
+                                    <button type="submit" class="btn btn-primary">Guardar cambios</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Delete Category Confirmation Modal -->
+                <div class="modal fade" id="category-delete-modal" tabindex="-1" aria-labelledby="category-delete-modal-label" aria-hidden="true">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="category-delete-modal-label">Eliminar categoría</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                <p>¿Estás seguro de que querés eliminar esta categoría? Esta acción no se puede deshacer.</p>
+                                <p class="text-muted" id="category-delete-preview"></p>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-outline" data-bs-dismiss="modal">Cancelar</button>
+                                <button type="button" class="btn btn-error" id="category-delete-confirm-btn">Eliminar</button>
                             </div>
                         </div>
                     </div>
@@ -969,10 +1892,7 @@ class PecusApp {
 
                 <div class="row mb-4">
                     <div class="col-12">
-                        <div class="analysis-chart-container">
-                            <h3 class="chart-title">Evolución financiera</h3>
-                            <canvas id="evolutionChart" height="200"></canvas>
-                        </div>
+                        <div class="analysis-chart-container"><h3 class="chart-title">Evolución financiera</h3><p class="text-muted mb-0">Todavía no hay análisis disponible para mostrar.</p></div>
                     </div>
                 </div>
 
@@ -980,13 +1900,13 @@ class PecusApp {
                     <div class="col-lg-6">
                         <div class="analysis-chart-container">
                             <h3 class="chart-title">Ingresos vs Gastos</h3>
-                            <canvas id="incomeExpenseChart" height="200"></canvas>
+                            <p class="text-muted mb-0">Sin datos de análisis disponibles.</p>
                         </div>
                     </div>
                     <div class="col-lg-6">
                         <div class="analysis-chart-container">
                             <h3 class="chart-title">Distribución de gastos</h3>
-                            <canvas id="expensesPieChart" height="200"></canvas>
+                            <p class="text-muted mb-0">Sin datos de análisis disponibles.</p>
                         </div>
                     </div>
                 </div>
@@ -995,7 +1915,7 @@ class PecusApp {
                     <div class="col-12">
                         <div class="analysis-chart-container">
                             <h3 class="chart-title">Gastos por fuente</h3>
-                            <canvas id="sourceChart" height="200"></canvas>
+                            <p class="text-muted mb-0">Sin datos de análisis disponibles.</p>
                         </div>
                     </div>
                 </div>
@@ -1010,14 +1930,6 @@ class PecusApp {
                     <h1 class="dashboard-title">Metas</h1>
                 </div>
 
-                <div class="row mb-4">
-                    <div class="col-12 text-end">
-                        <button class="btn btn-outline">
-                            <i class="me-2" data-lucide="plus"></i> Nueva meta
-                        </button>
-                    </div>
-                </div>
-
                 <div class="row">
                     <div class="col-12">
                         <div class="card">
@@ -1025,70 +1937,12 @@ class PecusApp {
                                 <h5 class="card-title mb-0">Mis metas</h5>
                             </div>
                             <div class="card-body">
-                                <div class="row">
-                                    <div class="col-md-6">
-                                        <div class="goal-card">
-                                            <div class="goal-header">
-                                                <h6 class="goal-title">Viaje a Bariloche</h6>
-                                            </div>
-                                            <div class="goal-body">
-                                                <div class="goal-progress-label">
-                                                    <span>Objetivo: $2,000,000</span>
-                                                    <span>Ahorrado: $850,000</span>
-                                                </div>
-                                                <div class="goal-progress-bar">
-                                                    <div class="goal-progress-fill" style="width: 42.5%;"></div>
-                                                </div>
-                                                <div class="goal-progress-label">
-                                                    <span>Progreso: 42.5%</span>
-                                                    <span>Fecha objetivo: Dic 2026</span>
-                                                </div>
-                                            </div>
-                                            <div class="goal-footer">
-                                                <button class="btn btn-outline w-100">
-                                                    <i class="me-2" data-lucide="pencil"></i> Editar meta
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <div class="goal-card">
-                                            <div class="goal-header">
-                                                <h6 class="goal-title">Emergency Fund</h6>
-                                            </div>
-                                            <div class="goal-body">
-                                                <div class="goal-progress-label">
-                                                    <span>Objetivo: $500,000</span>
-                                                    <span>Ahorrado: $200,000</span>
-                                                </div>
-                                                <div class="goal-progress-bar">
-                                                    <div class="goal-progress-fill" style="width: 40%;"></div>
-                                                </div>
-                                                <div class="goal-progress-label">
-                                                    <span>Progreso: 40%</span>
-                                                    <span>Fecha objetivo: Jun 2027</span>
-                                                </div>
-                                            </div>
-                                            <div class="goal-footer">
-                                                <button class="btn btn-outline w-100">
-                                                    <i class="me-2" data-lucide="pencil"></i> Editar meta
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
+                                <p class="text-muted mb-0">Todavía no hay metas registradas. Este módulo aún no está conectado a una API.</p>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <div class="row mt-4">
-                    <div class="col-12 text-center">
-                        <button class="btn btn-primary">
-                            <i class="me-2" data-lucide="plus"></i> Nueva meta
-                        </button>
-                    </div>
-                </div>
             </div>
         `;
     }
@@ -1100,14 +1954,6 @@ class PecusApp {
                     <h1 class="dashboard-title">Presupuestos</h1>
                 </div>
 
-                <div class="row mb-4">
-                    <div class="col-12 text-end">
-                        <button class="btn btn-outline">
-                            <i class="me-2" data-lucide="plus"></i> Nuevo presupuesto
-                        </button>
-                    </div>
-                </div>
-
                 <div class="row">
                     <div class="col-12">
                         <div class="card">
@@ -1115,70 +1961,12 @@ class PecusApp {
                                 <h5 class="card-title mb-0">Mis presupuestos</h5>
                             </div>
                             <div class="card-body">
-                                <div class="row">
-                                    <div class="col-md-6">
-                                        <div class="budget-card">
-                                            <div class="budget-header">
-                                                <h6 class="budget-title">Alimentación</h6>
-                                            </div>
-                                            <div class="budget-body">
-                                                <div class="budget-details">
-                                                    <span>Límite: $30,000</span>
-                                                    <span>Gastado: $24,000</span>
-                                                </div>
-                                                <div class="budget-progress-bar">
-                                                    <div class="budget-progress-fill" style="width: 80%;"></div>
-                                                </div>
-                                                <div class="budget-details">
-                                                    <span>Disponible: $6,000</span>
-                                                    <span>Utilizado: 80%</span>
-                                                </div>
-                                            </div>
-                                            <div class="budget-footer">
-                                                <button class="btn btn-outline w-100">
-                                                    <i class="me-2" data-lucide="pencil"></i> Editar presupuesto
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <div class="budget-card">
-                                            <div class="budget-header">
-                                                <h6 class="budget-title">Transporte</h6>
-                                            </div>
-                                            <div class="budget-body">
-                                                <div class="budget-details">
-                                                    <span>Límite: $15,000</span>
-                                                    <span>Gastado: $8,500</span>
-                                                </div>
-                                                <div class="budget-progress-bar">
-                                                    <div class="budget-progress-fill" style="width: 56.7%;"></div>
-                                                </div>
-                                                <div class="budget-details">
-                                                    <span>Disponible: $6,500</span>
-                                                    <span>Utilizado: 56.7%</span>
-                                                </div>
-                                            </div>
-                                            <div class="budget-footer">
-                                                <button class="btn btn-outline w-100">
-                                                    <i class="me-2" data-lucide="pencil"></i> Editar presupuesto
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
+                                <p class="text-muted mb-0">Todavía no hay presupuestos registrados. Este módulo aún no está conectado a una API.</p>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <div class="row mt-4">
-                    <div class="col-12 text-center">
-                        <button class="btn btn-primary">
-                            <i class="me-2" data-lucide="plus"></i> Nuevo presupuesto
-                        </button>
-                    </div>
-                </div>
             </div>
         `;
     }
@@ -1197,22 +1985,7 @@ class PecusApp {
                                 <h5 class="card-title mb-0">Chat con tu asistente</h5>
                             </div>
                             <div class="card-body">
-                                <div class="assistant-chat" id="chat-messages">
-                                    <div class="chat-message assistant">
-                                        <div class="chat-avatar">
-                                            <i data-lucide="bot"></i>
-                                        </div>
-                                        <div class="chat-content">
-                                            <p class="chat-text mb-0">¡Hola! Soy tu asistente financiero PECUS. ¿En qué puedo ayudarte hoy?</p>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="chat-input-area">
-                                    <input type="text" class="form-control chat-input" placeholder="Escribe tu mensaje..." id="chat-input">
-                                    <button class="btn btn-primary chat-send-btn" id="chat-send-btn">
-                                        <i data-lucide="send"></i>
-                                    </button>
-                                </div>
+                                <p class="text-muted mb-0">El asistente financiero todavía no está implementado.</p>
                             </div>
                         </div>
                     </div>
@@ -1228,14 +2001,6 @@ class PecusApp {
                     <h1 class="dashboard-title">Notificaciones</h1>
                 </div>
 
-                <div class="row mb-4">
-                    <div class="col-12 text-end">
-                        <button class="btn btn-outline">
-                            <i class="me-2" data-lucide="toggle-left"></i> Marcar todo como leído
-                        </button>
-                    </div>
-                </div>
-
                 <div class="row">
                     <div class="col-12">
                         <div class="card">
@@ -1243,22 +2008,7 @@ class PecusApp {
                                 <h5 class="card-title mb-0">Mis notificaciones</h5>
                             </div>
                             <div class="card-body">
-                                ${this.mockData.notifications.map(notif => `
-                                    <div class="notification-item ${notif.read ? 'read' : 'unread'}">
-                                        <div class="notification-icon">
-                                            <i data-lucide="${notif.type === 'success' ? 'check-circle' : notif.type === 'warning' ? 'triangle-alert' : 'info'}"></i>
-                                        </div>
-                                        <div class="notification-content">
-                                            <h6 class="notification-title">${notif.title}</h6>
-                                            <p class="notification-message">${notif.message}</p>
-                                            <div class="notification-time">${notif.time}</p>
-                                            <div class="notification-actions">
-                                                <button class="btn btn-outline btn-sm">${notif.read ? 'Marcar como no leído' : 'Marcar como leído'}</button>
-                                                <button class="btn btn-outline btn-sm">Eliminar</button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                `).join('')}
+                <p class="text-muted mb-0">El módulo de notificaciones todavía no está conectado a la API.</p>
                             </div>
                         </div>
                     </div>
@@ -1283,15 +2033,15 @@ class PecusApp {
                             <div class="settings-body">
                                 <div class="settings-item">
                                     <span class="settings-label">Nombre</span>
-                                    <span>${this.mockData.user.name} ${this.mockData.user.surname}</span>
+                                    <span>${this.state.user ? `${this.state.user.name || ''} ${this.state.user.surname || ''}`.trim() : 'No disponible'}</span>
                                 </div>
                                 <div class="settings-item">
                                     <span class="settings-label">Email</span>
-                                    <span>${this.mockData.user.email}</span>
+                                    <span>${this.state.user?.email || 'No disponible'}</span>
                                 </div>
                                 <div class="settings-item">
                                     <span class="settings-label">Teléfono</span>
-                                    <span>+54 9 11 1234-5678</span>
+                                    <span>No disponible</span>
                                 </div>
                                 <div class="settings-item">
                                     <span class="settings-label">Foto de perfil</span>
@@ -1315,14 +2065,14 @@ class PecusApp {
                                 <div class="settings-item">
                                     <span class="settings-label">Notificaciones push</span>
                                     <div class="settings-toggle">
-                                        <input type="checkbox" id="push-notifications" checked>
+                                        <input type="checkbox" id="push-notifications" disabled>
                                         <label class="settings-slider" for="push-notifications"></label>
                                     </div>
                                 </div>
                                 <div class="settings-item">
                                     <span class="settings-label">Notificaciones por email</span>
                                     <div class="settings-toggle">
-                                        <input type="checkbox" id="email-notifications" checked>
+                                        <input type="checkbox" id="email-notifications" disabled>
                                         <label class="settings-slider" for="email-notifications"></label>
                                     </div>
                                 </div>
@@ -1361,14 +2111,14 @@ class PecusApp {
                                 <div class="settings-item">
                                     <span class="settings-label">Sincronización automática</span>
                                     <div class="settings-toggle">
-                                        <input type="checkbox" id="auto-sync" checked>
+                                        <input type="checkbox" id="auto-sync" disabled>
                                         <label class="settings-slider" for="auto-sync"></label>
                                     </div>
                                 </div>
                                 <div class="settings-item">
                                     <span class="settings-label">Copias de seguridad</span>
                                     <div class="settings-toggle">
-                                        <input type="checkbox" id="backups" checked>
+                                        <input type="checkbox" id="backups" disabled>
                                         <label class="settings-slider" for="backups"></label>
                                     </div>
                                 </div>
@@ -1385,12 +2135,15 @@ class PecusApp {
     }
 
     getDashboardSummary() {
-        const summary = this.state.dashboard?.summary || {};
+        const summary = this.state.dashboard?.summary;
+        if (!summary || !['available', 'balance', 'income', 'expenses'].every((key) => Number.isFinite(Number(summary[key])))) {
+            return null;
+        }
         return {
-            available: Number(summary.available ?? summary.balance ?? 0),
-            income: Number(summary.income ?? 0),
-            expenses: Number(summary.expenses ?? 0),
-            balance: Number(summary.balance ?? 0),
+            available: Number(summary.available ?? summary.balance),
+            income: Number(summary.income),
+            expenses: Number(summary.expenses),
+            balance: Number(summary.balance),
         };
     }
 
@@ -1428,7 +2181,11 @@ class PecusApp {
     }
 
     formatNumber(num) {
-        return new Intl.NumberFormat('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(Number(num || 0));
+        const value = Number(num);
+        if (!Number.isFinite(value)) {
+            return '—';
+        }
+        return new Intl.NumberFormat('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
     }
 
     formatDate(dateString) {

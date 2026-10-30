@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Movement;
 use App\Models\Source;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
@@ -19,34 +20,64 @@ class DashboardController extends Controller
     {
         $user = $request->user();
 
-        // Calculate totals
-        $income = $user->movements()
+        // Get period filter from query params (optional)
+        $period = $request->query('period', 'all'); // all, month, year, custom
+        $startDate = $request->query('start_date');
+        $endDate = $request->query('end_date');
+
+        // Base query for movements
+        $movementsQuery = $user->movements()
+            ->where('status', 'CONFIRMED');
+
+        // Apply period filtering
+        if ($period !== 'all') {
+            if ($period === 'month' && !$startDate && !$endDate) {
+                // Current month
+                $movementsQuery->whereYear('operation_date', now()->year)
+                    ->whereMonth('operation_date', now()->month);
+            } elseif ($period === 'year' && !$startDate && !$endDate) {
+                // Current year
+                $movementsQuery->whereYear('operation_date', now()->year);
+            } elseif ($startDate && $endDate) {
+                // Custom date range
+                $movementsQuery->whereBetween('operation_date', [$startDate, $endDate]);
+            }
+        }
+
+        // Calculate totals for the period
+        $income = $movementsQuery->clone()
             ->where('type', 'INCOME')
-            ->where('status', 'CONFIRMED')
             ->sum('amount');
 
-        $expenses = $user->movements()
+        $expenses = $movementsQuery->clone()
             ->where('type', 'EXPENSE')
-            ->where('status', 'CONFIRMED')
             ->sum('amount');
-
-        // For internal transfers, we don't count them as income or expense
-        // Already filtered by type.
 
         $balance = $income - $expenses;
 
-        // Get sources with their current balance (initial_balance + sum of movement amounts)
-        $sources = $user->sources()->get()->map(function ($source) {
-            $movements = $source->movements()
-                ->where('status', 'CONFIRMED')
-                ->get();
+        // Get sources with their current balance (considering period if specified)
+        $sourcesQuery = $user->sources();
+        $sources = $sourcesQuery->get()->map(function ($source) use ($user, $period, $startDate, $endDate) {
+            $sourceMovementsQuery = $source->movements()
+                ->where('status', 'CONFIRMED');
+
+            // Apply same period filtering to source movements
+            if ($period !== 'all') {
+                if ($period === 'month' && !$startDate && !$endDate) {
+                    $sourceMovementsQuery->whereYear('operation_date', now()->year)
+                        ->whereMonth('operation_date', now()->month);
+                } elseif ($period === 'year' && !$startDate && !$endDate) {
+                    $sourceMovementsQuery->whereYear('operation_date', now()->year);
+                } elseif ($startDate && $endDate) {
+                    $sourceMovementsQuery->whereBetween('operation_date', [$startDate, $endDate]);
+                }
+            }
+
+            $movements = $sourceMovementsQuery->get();
 
             $sourceBalance = $source->initial_balance +
                 $movements->sum(function ($movement) {
-                    // For income, add amount; for expense, subtract amount; for transfers, zero?
-                    // Actually, internal transfers should not affect the source balance?
-                    // But spec says: initial_balance + income - expense = current balance.
-                    // So we treat income as positive, expense as negative, transfers as zero.
+                    // For income, add amount; for expense, subtract amount; for transfers, zero
                     if ($movement->type === 'INCOME') {
                         return $movement->amount;
                     } elseif ($movement->type === 'EXPENSE') {
@@ -61,23 +92,61 @@ class DashboardController extends Controller
             return $source;
         });
 
-        // Get recent movements
-        $recentMovements = $user->movements()
+        // Get category distribution for expenses (for the period)
+        $categoryDistribution = $movementsQuery->clone()
+            ->where('type', 'EXPENSE')
+            ->with('category')
+            ->get()
+            ->groupBy(function ($movement) {
+                return $movement->category ? $movement->category->name : 'Sin categoría';
+            })
+            ->map(function ($movements, $categoryName) {
+                return [
+                    'category' => $categoryName,
+                    'amount' => $movements->sum('amount'),
+                    'percentage' => $expenses > 0 ? round(($movements->sum('amount') / $expenses) * 100, 2) : 0
+                ];
+            })
+            ->values()
+            ->all();
+
+        // Get recent movements (for the period)
+        $recentMovementsQuery = $user->movements()
             ->with(['source', 'category'])
-            ->where('status', 'CONFIRMED')
+            ->where('status', 'CONFIRMED');
+
+        // Apply same period filtering to recent movements
+        if ($period !== 'all') {
+            if ($period === 'month' && !$startDate && !$endDate) {
+                $recentMovementsQuery->whereYear('operation_date', now()->year)
+                    ->whereMonth('operation_date', now()->month);
+            } elseif ($period === 'year' && !$startDate && !$endDate) {
+                $recentMovementsQuery->whereYear('operation_date', now()->year);
+            } elseif ($startDate && $endDate) {
+                $recentMovementsQuery->whereBetween('operation_date', [$startDate, $endDate]);
+            }
+        }
+
+        $recentMovements = $recentMovementsQuery
             ->orderBy('operation_date', 'desc')
             ->limit(10)
             ->get();
 
         return response()->json([
             'summary' => [
-                'available' => $balance, // dinero disponible? We'll use balance as available.
+                'available' => $balance, // Total available balance (income - expenses)
                 'income' => $income,
                 'expenses' => $expenses,
                 'balance' => $balance,
             ],
             'recent_movements' => $recentMovements,
             'sources' => $sources,
+            'category_distribution' => $categoryDistribution,
+            'period_info' => [
+                'period' => $period,
+                'start_date' => $startDate,
+                'end_date' => $endDate,
+            ]
         ]);
     }
 }

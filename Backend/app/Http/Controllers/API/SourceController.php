@@ -5,6 +5,7 @@ namespace App\Http\Controllers\API;
 use App\Http\Controllers\Controller;
 use App\Models\Source;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class SourceController extends Controller
@@ -17,7 +18,9 @@ class SourceController extends Controller
      */
     public function index(Request $request)
     {
-        $sources = $request->user()->sources()->get();
+        $sources = $request->user()->sources()
+            ->orderBy('created_at', 'desc')
+            ->get();
 
         return response()->json($sources);
     }
@@ -33,12 +36,16 @@ class SourceController extends Controller
         $request->validate([
             'name' => 'required|string|max:255',
             'type' => 'required|in:BANK,CREDIT_CARD,WALLET,CASH,OTHER',
-            'currency' => 'required|string|max:3',
+            'currency' => 'required|string|max:3|regex:/^[A-Z]{3}$/',
             'initial_balance' => 'nullable|numeric|min:0',
             'status' => 'required|in:ACTIVE,INACTIVE',
         ]);
 
-        $source = $request->user()->sources()->create($request->all());
+        // Use database transaction for atomic operation
+        $source = DB::transaction(function () use ($request) {
+            $source = $request->user()->sources()->create($request->all());
+            return $source;
+        });
 
         return response()->json($source, 201);
     }
@@ -75,7 +82,7 @@ class SourceController extends Controller
         $request->validate([
             'name' => 'sometimes|required|string|max:255',
             'type' => 'sometimes|required|in:BANK,CREDIT_CARD,WALLET,CASH,OTHER',
-            'currency' => 'sometimes|required|string|max:3',
+            'currency' => 'sometimes|required|string|max:3|regex:/^[A-Z]{3}$/',
             'initial_balance' => 'sometimes|nullable|numeric|min:0',
             'status' => 'sometimes|required|in:ACTIVE,INACTIVE',
         ]);
@@ -88,7 +95,11 @@ class SourceController extends Controller
             ], 404);
         }
 
-        $source->update($request->all());
+        // Use database transaction for atomic operation
+        $source = DB::transaction(function () use ($request, $source) {
+            $source->update($request->all());
+            return $source;
+        });
 
         return response()->json($source);
     }
@@ -110,7 +121,21 @@ class SourceController extends Controller
             ], 404);
         }
 
-        $source->delete();
+        // Check if source has active movements (excluding soft deleted)
+        $activeMovementsCount = $source->movements()
+            ->whereNull('deleted_at')
+            ->count();
+
+        if ($activeMovementsCount > 0) {
+            return response()->json([
+                'message' => 'Cannot delete source that has active movements. Please move or delete movements first.',
+            ], 422);
+        }
+
+        // Use database transaction for atomic operation
+        DB::transaction(function () use ($source) {
+            $source->delete();
+        });
 
         return response()->json([
             'message' => 'Source deleted successfully',

@@ -128,20 +128,82 @@ class PecusApiClient {
         return this.request('/user');
     }
 
-    async getDashboard() {
-        return this.request('/dashboard');
+    async getDashboard(params = {}) {
+        const queryString = new URLSearchParams(params).toString();
+        return this.request(`/dashboard${queryString ? `?${queryString}` : ''}`);
     }
 
     async getSources() {
         return this.request('/sources');
     }
 
+    async createSource(payload) {
+        return this.request('/sources', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        });
+    }
+
+    async updateSource(id, payload) {
+        return this.request(`/sources/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(payload),
+        });
+    }
+
+    async deleteSource(id) {
+        return this.request(`/sources/${id}`, {
+            method: 'DELETE',
+        });
+    }
+
     async getCategories() {
         return this.request('/categories');
     }
 
-    async getMovements() {
-        return this.request('/movements');
+    async createCategory(payload) {
+        return this.request('/categories', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        });
+    }
+
+    async updateCategory(id, payload) {
+        return this.request(`/categories/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(payload),
+        });
+    }
+
+    async deleteCategory(id) {
+        return this.request(`/categories/${id}`, {
+            method: 'DELETE',
+        });
+    }
+
+    async getMovements(params = {}) {
+        const queryString = new URLSearchParams(params).toString();
+        return this.request(`/movements${queryString ? `?${queryString}` : ''}`);
+    }
+
+    async createMovement(payload) {
+        return this.request('/movements', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        });
+    }
+
+    async updateMovement(id, payload) {
+        return this.request(`/movements/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(payload),
+        });
+    }
+
+    async deleteMovement(id) {
+        return this.request(`/movements/${id}`, {
+            method: 'DELETE',
+        });
     }
 
     async getReceipts() {
@@ -159,10 +221,26 @@ class PecusApiClient {
         });
     }
 
-    async processReceipt(receiptId) {
-        return this.request(`/receipts/${receiptId}/process`, {
-            method: 'POST',
-        });
+    async openReceiptFile(receiptId) {
+        const previewWindow = window.open('', '_blank');
+        if (!previewWindow) {
+            throw new Error('El navegador bloqueó la ventana para abrir el archivo.');
+        }
+
+        try {
+            const response = await fetch(`${this.baseUrl}/receipts/${receiptId}/file`, {
+                headers: { Authorization: `Bearer ${this.getToken()}` },
+            });
+            if (!response.ok) {
+                throw new Error('No se pudo abrir el archivo del comprobante.');
+            }
+            const fileUrl = URL.createObjectURL(await response.blob());
+            previewWindow.location.href = fileUrl;
+            setTimeout(() => URL.revokeObjectURL(fileUrl), 60000);
+        } catch (error) {
+            previewWindow.close();
+            throw error;
+        }
     }
 
     async reviewReceipt(receiptId, payload) {

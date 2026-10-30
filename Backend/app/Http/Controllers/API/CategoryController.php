@@ -5,6 +5,7 @@ namespace App\Http\Controllers\API;
 use App\Http\Controllers\Controller;
 use App\Models\Category;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class CategoryController extends Controller
@@ -17,7 +18,9 @@ class CategoryController extends Controller
      */
     public function index(Request $request)
     {
-        $categories = $request->user()->categories()->get();
+        $categories = $request->user()->categories()
+            ->orderBy('created_at', 'asc')
+            ->get();
 
         return response()->json($categories);
     }
@@ -38,7 +41,11 @@ class CategoryController extends Controller
             'is_default' => 'sometimes|boolean',
         ]);
 
-        $category = $request->user()->categories()->create($request->all());
+        // Use database transaction for atomic operation
+        $category = DB::transaction(function () use ($request) {
+            $category = $request->user()->categories()->create($request->all());
+            return $category;
+        });
 
         return response()->json($category, 201);
     }
@@ -88,7 +95,15 @@ class CategoryController extends Controller
             ], 404);
         }
 
-        $category->update($request->all());
+        // Prevent editing of default categories if not admin?
+        // For now, we'll allow editing but note in comments
+        // In a real app, you might want to restrict this based on roles
+
+        // Use database transaction for atomic operation
+        $category = DB::transaction(function () use ($request, $category) {
+            $category->update($request->all());
+            return $category;
+        });
 
         return response()->json($category);
     }
@@ -110,7 +125,39 @@ class CategoryController extends Controller
             ], 404);
         }
 
-        $category->delete();
+        // Check if category has active movements (excluding soft deleted)
+        $activeMovementsCount = $category->movements()
+            ->whereNull('deleted_at')
+            ->count();
+
+        if ($activeMovementsCount > 0) {
+            return response()->json([
+                'message' => 'Cannot delete category that has active movements. Please move or delete movements first.',
+            ], 422);
+        }
+
+        // Prevent deletion of default categories if they're the only ones of their type
+        // This is a business rule - you might want to allow deleting defaults if user has created others
+        if ($category->is_default) {
+            $sameTypeCount = $request->user()->categories()
+                ->where('type', $category->type)
+                ->where('id', '!=', $category->id)
+                ->whereNull('deleted_at')
+                ->count();
+
+            // If this is the only category of its type and it's default, prevent deletion
+            // unless user has created other categories of the same type
+            if ($sameTypeCount == 0) {
+                return response()->json([
+                    'message' => 'Cannot delete the default category. Please create another category of this type first.',
+                ], 422);
+            }
+        }
+
+        // Use database transaction for atomic operation
+        DB::transaction(function () use ($category) {
+            $category->delete();
+        });
 
         return response()->json([
             'message' => 'Category deleted successfully',

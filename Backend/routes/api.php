@@ -26,8 +26,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Sources
     Route::apiResource('/sources', SourceController::class)->except(['show', 'update', 'destroy']);
-    // We'll add specific routes for show, update, destroy if needed, but for demo we can keep only index and store.
-    // Actually, we need show, update, destroy for review? Not for sources. We'll keep them for completeness.
+    // Explicit routes for the remaining resource actions.
     Route::get('/sources/{source}', [SourceController::class, 'show']);
     Route::put('/sources/{source}', [SourceController::class, 'update']);
     Route::delete('/sources/{source}', [SourceController::class, 'destroy']);
@@ -49,8 +48,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/receipts/{receipt}', [ReceiptController::class, 'show']);
     Route::put('/receipts/{receipt}', [ReceiptController::class, 'update']);
     Route::delete('/receipts/{receipt}', [ReceiptController::class, 'destroy']);
-    // Custom routes for processing and confirming
-    Route::post('/receipts/{receipt}/process', [ReceiptController::class, 'process']);
+    // Manual review and confirmation; receipt files remain protected by authentication.
+    Route::get('/receipts/{receipt}/file', [ReceiptController::class, 'file']);
     Route::post('/receipts/{receipt}/confirm', [ReceiptController::class, 'confirm']);
 
     // Dashboard

@@ -4,15 +4,10 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use App\Models\Receipt;
-use App\Models\Movement;
-use App\Models\Source;
-use App\Models\Category;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
-use Illuminate\Database\Eloquent\Builder;
-use App\Services\ProcessReceiptService;
 
 class ReceiptController extends Controller
 {
@@ -58,7 +53,7 @@ class ReceiptController extends Controller
 
         // Create receipt record
         $receipt = $request->user()->receipts()->create([
-            'file_path' => Storage::disk('public')->path($path),
+            'file_path' => $path,
             'file_name' => $request->file->getClientOriginalName(),
             'mime_type' => $request->file->getClientMimeType(),
             'status' => 'RECEIVED',
@@ -89,6 +84,33 @@ class ReceiptController extends Controller
         return response()->json($receipt);
     }
 
+    public function file(Request $request, string $id)
+    {
+        $receipt = $request->user()->receipts()->find($id);
+        if (! $receipt) {
+            return response()->json(['message' => 'Receipt not found'], 404);
+        }
+
+        // Handle null or empty file_path
+        if (empty($receipt->file_path)) {
+            return response()->json(['message' => 'Receipt file not found'], 404);
+        }
+
+        $legacyAbsolutePath = str_starts_with($receipt->file_path, DIRECTORY_SEPARATOR)
+            || preg_match('/^[A-Za-z]:\\\\/', $receipt->file_path);
+        $fileExists = $legacyAbsolutePath
+            ? is_file($receipt->file_path)
+            : Storage::disk('public')->exists($receipt->file_path);
+
+        if (! $fileExists) {
+            return response()->json(['message' => 'Receipt file not found'], 404);
+        }
+
+        return $legacyAbsolutePath
+            ? response()->download($receipt->file_path, $receipt->file_name)
+            : Storage::disk('public')->download($receipt->file_path, $receipt->file_name);
+    }
+
     /**
      * Update the specified resource in storage (review).
      *
@@ -106,77 +128,32 @@ class ReceiptController extends Controller
             ], 404);
         }
 
-        // Validate input for review
+        // Prevent updates on confirmed receipts or those with movements
+        if ($receipt->status === 'CONFIRMED' || $receipt->movement_id) {
+            return response()->json(['message' => 'A confirmed receipt cannot be changed.'], 422);
+        }
+
         $request->validate([
-            'amount' => 'sometimes|required|numeric|min:0',
+            'amount' => 'sometimes|required|numeric|gt:0',
             'date' => 'sometimes|required|date',
-            'merchant' => 'sometimes|required|string|max:255',
+            'merchant' => 'sometimes|nullable|string|max:255',
             'operation_type' => 'sometimes|required|in:EXPENSE,INCOME',
-            'currency' => 'sometimes|required|string|max:3',
+            'currency' => 'sometimes|required|string|size:3',
             'source_id' => 'sometimes|required|exists:sources,id,user_id,' . $request->user()->id,
             'category_id' => 'sometimes|required|exists:categories,id,user_id,' . $request->user()->id,
-            'description' => 'sometimes|string|max:255',
+            'description' => 'sometimes|nullable|string|max:255',
         ]);
 
-        // Update extracted_data with the reviewed data
+        // Preserve existing extracted data and merge with new data
         $extracted = $receipt->extracted_data ?? [];
-        $extracted = array_merge($extracted, [
-            'amount' => $request->amount ?? ($extracted['amount'] ?? null),
-            'date' => $request->date ?? ($extracted['date'] ?? null),
-            'merchant' => $request->merchant ?? ($extracted['merchant'] ?? null),
-            'operation_type' => $request->operation_type ?? ($extracted['operation_type'] ?? null),
-            'currency' => $request->currency ?? ($extracted['currency'] ?? null),
-            'source_id' => $request->source_id ?? ($extracted['source_id'] ?? null),
-            'category_id' => $request->category_id ?? ($extracted['category_id'] ?? null),
-            'description' => $request->description ?? ($extracted['description'] ?? null),
-        ]);
+        $extracted = array_merge($extracted, $request->only([
+            'amount', 'date', 'merchant', 'operation_type', 'currency', 'source_id', 'category_id', 'description',
+        ]));
 
         $receipt->update([
             'extracted_data' => $extracted,
-        ]);
-
-        return response()->json($receipt);
-    }
-
-    /**
-     * Process the receipt (mock processing).
-     *
-     * @param  Request  $request
-     * @param  string  $id
-     * @return \Illuminate\Http\JsonResponse
-     */
-    public function process(Request $request, string $id)
-    {
-        $receipt = $request->user()->receipts()->find($id);
-
-        if (! $receipt) {
-            return response()->json([
-                'message' => 'Receipt not found',
-            ], 404);
-        }
-
-        if ($receipt->status !== 'RECEIVED') {
-            return response()->json([
-                'message' => 'Receipt cannot be processed in its current state.',
-            ], 422);
-        }
-
-        // Update status to processing
-        $receipt->update([
-            'status' => 'PROCESSING',
-        ]);
-
-        // Mock processing: generate plausible data
-        // In a real app, this would call an OCR service or AI model.
-        // For demo, we'll return fixed data or based on filename.
-        $mockData = $this->generateMockData($receipt->file_name);
-
-        // Update receipt with extracted data
-        $receipt->update([
-            'status' => 'PROCESSED',
-            'confidence' => 'HIGH',
-            'extracted_data' => $mockData,
-            'processed_at' => now(),
+            'status' => collect(['amount', 'date', 'operation_type', 'currency', 'source_id', 'category_id'])
+                ->every(fn ($key) => isset($extracted[$key])) ? 'REQUIRES_REVIEW' : 'RECEIVED',
         ]);
 
         return response()->json($receipt);
@@ -199,73 +176,58 @@ class ReceiptController extends Controller
             ], 404);
         }
 
-        if ($receipt->status !== 'PROCESSED') {
+        // Check conditions BEFORE locking for efficiency
+        if ($receipt->status !== 'REQUIRES_REVIEW' || $receipt->movement_id) {
             return response()->json([
-                'message' => 'Receipt must be processed before confirmation.',
+                'message' => 'Complete the manual review before confirming this receipt.',
             ], 422);
         }
 
-        $extracted = $receipt->extracted_data;
+        // Validate that we have the required data
+        $extracted = $receipt->extracted_data ?? [];
+        $requiredFields = ['amount', 'date', 'operation_type', 'currency', 'source_id', 'category_id'];
+        $missingFields = array_filter($requiredFields, fn($field) => !isset($extracted[$field]));
 
-        // Validate required fields
-        if (! isset($extracted['amount']) || ! isset($extracted['date']) || ! isset($extracted['merchant'])) {
+        if (!empty($missingFields)) {
             return response()->json([
-                'message' => 'Missing required data for confirmation.',
+                'message' => 'Please complete all required fields before confirming.',
+                'missing_fields' => array_values($missingFields)
             ], 422);
         }
 
-        // Begin transaction
-        return \DB::transaction(function () use ($request, $receipt, $extracted) {
-            // Find or create source based on extracted data
-            $source = null;
-            if (isset($extracted['source_id'])) {
-                $source = $request->user()->sources()->find($extracted['source_id']);
-            }
-            if (! $source) {
-                // Default to first source or create a generic one? For demo, we'll use the first source.
-                $source = $request->user()->sources()->first();
-                if (! $source) {
-                    // Create a default source if none exists
-                    $source = $request->user()->sources()->create([
-                        'name' => 'Default Source',
-                        'type' => 'WALLET',
-                        'currency' => 'ARS',
-                        'initial_balance' => 0.00,
-                        'status' => 'ACTIVE',
-                    ]);
-                }
+        // Use database transaction for atomic operation
+        return DB::transaction(function () use ($request, $receipt, $extracted) {
+            // Lock the receipt for update to prevent race conditions
+            $receipt = $request->user()->receipts()->lockForUpdate()->findOrFail($receipt->id);
+
+            // Double-check conditions after acquiring lock
+            if ($receipt->movement_id || $receipt->status !== 'REQUIRES_REVIEW') {
+                return response()->json(['message' => 'This receipt has already been confirmed or needs manual review.'], 422);
             }
 
-            // Find or create category based on extracted data
-            $category = null;
-            if (isset($extracted['category_id'])) {
-                $category = $request->user()->categories()->find($extracted['category_id']);
+            // Re-extract data from the locked receipt
+            $extracted = $receipt->extracted_data ?? [];
+
+            // Validate source and category
+            $source = $request->user()->sources()->find($extracted['source_id'] ?? null);
+            $category = $request->user()->categories()->find($extracted['category_id'] ?? null);
+            if (! $source || ! $category) {
+                return response()->json(['message' => 'Select a valid source and category before confirming.'], 422);
             }
-            if (! $category) {
-                // Default to first category or create a generic one? For demo, we'll use the first category.
-                $category = $request->user()->categories()->first();
-                if (! $category) {
-                    // Create a default category if none exists
-                    $category = $request->user()->categories()->create([
-                        'name' => 'Default Category',
-                        'type' => 'EXPENSE',
-                        'icon' => null,
-                        'color' => null,
-                        'is_default' => true,
-                    ]);
-                }
+            if ($category->type !== $extracted['operation_type']) {
+                return response()->json(['message' => 'Select a category matching the movement type.'], 422);
             }
 
             // Create movement
             $movement = $request->user()->movements()->create([
                 'source_id' => $source->id,
                 'category_id' => $category->id,
-                'type' => $extracted['operation_type'] ?? 'EXPENSE',
+                'type' => $extracted['operation_type'],
                 'status' => 'CONFIRMED',
                 'origin' => 'RECEIPT',
                 'amount' => $extracted['amount'],
-                'currency' => $extracted['currency'] ?? 'ARS',
-                'description' => $extracted['description'] ?? $extracted['merchant'],
+                'currency' => $extracted['currency'],
+                'description' => $extracted['description'] ?? $extracted['merchant'] ?? null,
                 'operation_date' => $extracted['date'],
             ]);
 
@@ -273,6 +235,7 @@ class ReceiptController extends Controller
             $receipt->update([
                 'movement_id' => $movement->id,
                 'status' => 'CONFIRMED',
+                'processed_at' => now(),
             ]);
 
             return response()->json([
@@ -281,28 +244,5 @@ class ReceiptController extends Controller
                 'message' => 'Receipt confirmed and movement created successfully',
             ], 201);
         });
-    }
-
-    /**
-     * Generate mock data for receipt processing.
-     *
-     * @param  string  $filename
-     * @return array
-     */
-    private function generateMockData($filename)
-    {
-        // For demo, we can return fixed data or vary based on filename.
-        // Let's return some plausible data.
-        return [
-            'amount' => 12500,
-            'date' => '2026-10-02',
-            'time' => '13:42',
-            'merchant' => 'Supermercado Ejemplo',
-            'operation_type' => 'EXPENSE',
-            'currency' => 'ARS',
-            'source' => 'Mercado Pago',
-            'category' => 'Alimentación',
-            'description' => 'Compra de supermercado',
-        ];
     }
 }

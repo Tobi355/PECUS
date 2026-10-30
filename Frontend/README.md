@@ -84,10 +84,10 @@ Frontend/
 - Gráficos de gastos por categoría
 - Acciones rápidas (Nuevo movimiento, Cargar comprobante, Nueva fuente, Revisar pendientes)
 
-### Datos mock
-- Implementados en app.js con información coherente y realista
-- Incluyen usuario, fuentes, movimientos, categorías y notificaciones
-- Diseñados para ser fácilmente reemplazados por llamadas API futuras
+### Datos
+- Las vistas principales consumen datos de la API autenticada.
+- Las metas, presupuestos, análisis y notificaciones muestran estados vacíos hasta que esos módulos tengan endpoints.
+- Los comprobantes se guardan sin procesamiento automático y requieren completar los datos manualmente.
 
 ## Tecnologías utilizadas
 - HTML5
