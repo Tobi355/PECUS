@@ -78,8 +78,31 @@ class MovementController extends Controller
         try {
             $movement = $request->user()->movements()->create($validatedData);
 
-            // If this is a transfer, ensure transfer_group_id is set properly
-            if ($movement->type === 'INTERNAL_TRANSFER' || $movement->type === 'EXTERNAL_TRANSFER') {
+            // If this is an internal transfer, create the destination movement
+            if ($movement->type === 'INTERNAL_TRANSFER' && $movement->destination_source_id) {
+                if (! $movement->transfer_group_id) {
+                    $movement->transfer_group_id = $movement->id;
+                    $movement->save();
+                }
+
+                // Create the destination movement (income in the destination account)
+                $destinationMovement = $request->user()->movements()->create([
+                    'source_id' => $movement->destination_source_id,
+                    'type' => 'INTERNAL_TRANSFER',
+                    'status' => $movement->status,
+                    'origin' => $movement->origin,
+                    'amount' => $movement->amount,
+                    'currency' => $movement->currency,
+                    'description' => $movement->description,
+                    'operation_date' => $movement->operation_date,
+                    'notes' => $movement->notes,
+                    'transfer_group_id' => $movement->transfer_group_id,
+                    'destination_source_id' => null, // No further destination
+                    'category_id' => null, // Transfers don't have categories
+                ]);
+            }
+            // If this is an external transfer, ensure transfer_group_id is set properly
+            elseif ($movement->type === 'EXTERNAL_TRANSFER') {
                 if (! $movement->transfer_group_id) {
                     // Set transfer_group_id to its own ID if not provided
                     $movement->transfer_group_id = $movement->id;
@@ -140,12 +163,70 @@ class MovementController extends Controller
                 ], 404);
             }
 
+            $wasInternalTransfer = $movement->type === 'INTERNAL_TRANSFER';
+            $oldTransferGroupId = $movement->transfer_group_id;
+            $oldDestinationSourceId = $movement->destination_source_id;
+
             $movement->update($validatedData);
 
-            // Handle transfer_group_id for transfers
-            if ($movement->type === 'INTERNAL_TRANSFER' || $movement->type === 'EXTERNAL_TRANSFER') {
+            // Handle internal transfer destination movement
+            if ($movement->type === 'INTERNAL_TRANSFER' && $movement->destination_source_id) {
                 if (! $movement->transfer_group_id) {
-                    // Set transfer_group_id to its own ID if not provided
+                    $movement->transfer_group_id = $movement->id;
+                    $movement->save();
+                }
+
+                // Find or create the destination movement
+                $destinationMovement = $request->user()->movements()
+                    ->where('transfer_group_id', $movement->transfer_group_id)
+                    ->where('id', '!=', $movement->id)
+                    ->first();
+
+                if ($destinationMovement) {
+                    // Update existing destination movement
+                    $destinationMovement->update([
+                        'source_id' => $movement->destination_source_id,
+                        'amount' => $movement->amount,
+                        'currency' => $movement->currency,
+                        'description' => $movement->description,
+                        'operation_date' => $movement->operation_date,
+                        'notes' => $movement->notes,
+                        'status' => $movement->status,
+                    ]);
+                } else {
+                    // Create new destination movement
+                    $request->user()->movements()->create([
+                        'source_id' => $movement->destination_source_id,
+                        'type' => 'INTERNAL_TRANSFER',
+                        'status' => $movement->status,
+                        'origin' => $movement->origin,
+                        'amount' => $movement->amount,
+                        'currency' => $movement->currency,
+                        'description' => $movement->description,
+                        'operation_date' => $movement->operation_date,
+                        'notes' => $movement->notes,
+                        'transfer_group_id' => $movement->transfer_group_id,
+                        'category_id' => null,
+                    ]);
+                }
+            }
+            // If changing from internal transfer to something else, delete the destination movement
+            elseif ($wasInternalTransfer && $movement->type !== 'INTERNAL_TRANSFER') {
+                $request->user()->movements()
+                    ->where('transfer_group_id', $oldTransferGroupId)
+                    ->where('id', '!=', $movement->id)
+                    ->delete();
+            }
+            // If destination source changed, update the destination movement
+            elseif ($wasInternalTransfer && $movement->type === 'INTERNAL_TRANSFER' && $movement->destination_source_id != $oldDestinationSourceId) {
+                $request->user()->movements()
+                    ->where('transfer_group_id', $movement->transfer_group_id)
+                    ->where('id', '!=', $movement->id)
+                    ->update(['source_id' => $movement->destination_source_id]);
+            }
+            // If this is an external transfer, ensure transfer_group_id is set properly
+            elseif ($movement->type === 'EXTERNAL_TRANSFER') {
+                if (! $movement->transfer_group_id) {
                     $movement->transfer_group_id = $movement->id;
                     $movement->save();
                 }
@@ -177,10 +258,21 @@ class MovementController extends Controller
             ], 404);
         }
 
+        $transferGroupId = $movement->transfer_group_id;
+        $isInternalTransfer = $movement->type === 'INTERNAL_TRANSFER';
+
         // Use database transaction for atomic operation
         DB::beginTransaction();
         try {
             $movement->delete();
+
+            // If this was an internal transfer, also delete the destination movement
+            if ($isInternalTransfer && $transferGroupId) {
+                $request->user()->movements()
+                    ->where('transfer_group_id', $transferGroupId)
+                    ->delete();
+            }
+
             DB::commit();
 
             return response()->json([
@@ -203,6 +295,7 @@ class MovementController extends Controller
     {
         $rules = [
             'source_id' => 'sometimes|required|exists:sources,id,user_id,' . $request->user()->id,
+            'destination_source_id' => 'sometimes|exists:sources,id,user_id,' . $request->user()->id,
             'category_id' => 'sometimes|required|exists:categories,id,user_id,' . $request->user()->id,
             'type' => ['sometimes', 'required', 'in:EXPENSE,INCOME,INTERNAL_TRANSFER,EXTERNAL_TRANSFER,REFUND'],
             'status' => ['sometimes', 'required', 'in:PENDING,CONFIRMED'],
@@ -224,9 +317,10 @@ class MovementController extends Controller
                 // For transfers, category_id should not be required
                 $rules['category_id'] = 'sometimes';
 
-                // For internal transfers, transfer_group_id is required
+                // For internal transfers, destination_source_id is required
                 if ($type === 'INTERNAL_TRANSFER') {
-                    $rules['transfer_group_id'] = 'required|exists:movements,id,user_id,' . $request->user()->id;
+                    $rules['destination_source_id'] = 'required|exists:sources,id,user_id,' . $request->user()->id;
+                    $rules['transfer_group_id'] = 'sometimes|exists:movements,id,user_id,' . $request->user()->id;
                 }
             } elseif ($type === 'REFUND') {
                 // For refunds, original_movement_id is required
@@ -266,6 +360,14 @@ class MovementController extends Controller
             }
             if ($request->has('amount') && $request->input('amount') <= 0) {
                 $validator->errors()->add('amount', 'Amount must be greater than zero.');
+            }
+            // For internal transfers, ensure destination source is different from origin source
+            if ($request->has('type') && $request->input('type') === 'INTERNAL_TRANSFER') {
+                if ($request->has('source_id') && $request->has('destination_source_id')) {
+                    if ($request->input('source_id') == $request->input('destination_source_id')) {
+                        $validator->errors()->add('destination_source_id', 'La fuente destino debe ser diferente a la fuente origen.');
+                    }
+                }
             }
         });
 

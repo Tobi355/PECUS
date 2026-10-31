@@ -38,8 +38,10 @@ DB_PASSWORD=
 Luego crea la base de datos y corre las migraciones:
 
 ```bash
-php artisan migrate --seed
+php artisan migrate
 ```
+
+Importante: la base de datos queda limpia por defecto. No se crean usuarios ni registros de demo al inicializarla, para que puedas exportarla sin datos de prueba.
 
 Inicia el backend:
 

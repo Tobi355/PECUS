@@ -255,6 +255,96 @@ class PecusApiClient {
             method: 'POST',
         });
     }
+
+    // Goals
+    async getGoals() {
+        return this.request('/goals');
+    }
+
+    async createGoal(payload) {
+        return this.request('/goals', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        });
+    }
+
+    async updateGoal(id, payload) {
+        return this.request(`/goals/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(payload),
+        });
+    }
+
+    async deleteGoal(id) {
+        return this.request(`/goals/${id}`, {
+            method: 'DELETE',
+        });
+    }
+
+    // Budgets
+    async getBudgets() {
+        return this.request('/budgets');
+    }
+
+    async createBudget(payload) {
+        return this.request('/budgets', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        });
+    }
+
+    async updateBudget(id, payload) {
+        return this.request(`/budgets/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(payload),
+        });
+    }
+
+    async deleteBudget(id) {
+        return this.request(`/budgets/${id}`, {
+            method: 'DELETE',
+        });
+    }
+
+    // Notifications
+    async getNotifications(params = {}) {
+        const queryString = new URLSearchParams(params).toString();
+        return this.request(`/notifications${queryString ? `?${queryString}` : ''}`);
+    }
+
+    async getUnreadCount() {
+        return this.request('/notifications/unread-count');
+    }
+
+    async markNotificationAsRead(id) {
+        return this.request(`/notifications/${id}/read`, {
+            method: 'POST',
+        });
+    }
+
+    async markAllNotificationsAsRead() {
+        return this.request('/notifications/read-all', {
+            method: 'POST',
+        });
+    }
+
+    async deleteNotification(id) {
+        return this.request(`/notifications/${id}`, {
+            method: 'DELETE',
+        });
+    }
+
+    // User Preferences
+    async getPreferences() {
+        return this.request('/preferences');
+    }
+
+    async updatePreferences(settings) {
+        return this.request('/preferences', {
+            method: 'PUT',
+            body: JSON.stringify({ settings }),
+        });
+    }
 }
 
 window.PecusApi = new PecusApiClient(PECUS_API_BASE_URL);

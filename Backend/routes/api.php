@@ -8,6 +8,10 @@ use App\Http\Controllers\API\CategoryController;
 use App\Http\Controllers\API\MovementController;
 use App\Http\Controllers\API\ReceiptController;
 use App\Http\Controllers\API\DashboardController;
+use App\Http\Controllers\API\GoalController;
+use App\Http\Controllers\API\BudgetController;
+use App\Http\Controllers\API\NotificationController;
+use App\Http\Controllers\API\UserPreferenceController;
 
 /*
 |--------------------------------------------------------------------------
@@ -54,6 +58,29 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Dashboard
     Route::get('/dashboard', DashboardController::class);
+
+    // Goals
+    Route::apiResource('/goals', GoalController::class)->except(['show', 'update', 'destroy']);
+    Route::get('/goals/{goal}', [GoalController::class, 'show']);
+    Route::put('/goals/{goal}', [GoalController::class, 'update']);
+    Route::delete('/goals/{goal}', [GoalController::class, 'destroy']);
+
+    // Budgets
+    Route::apiResource('/budgets', BudgetController::class)->except(['show', 'update', 'destroy']);
+    Route::get('/budgets/{budget}', [BudgetController::class, 'show']);
+    Route::put('/budgets/{budget}', [BudgetController::class, 'update']);
+    Route::delete('/budgets/{budget}', [BudgetController::class, 'destroy']);
+
+    // Notifications
+    Route::get('/notifications', [NotificationController::class, 'index']);
+    Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
+    Route::post('/notifications/{notification}/read', [NotificationController::class, 'markAsRead']);
+    Route::post('/notifications/read-all', [NotificationController::class, 'markAllAsRead']);
+    Route::delete('/notifications/{notification}', [NotificationController::class, 'destroy']);
+
+    // User Preferences
+    Route::get('/preferences', [UserPreferenceController::class, 'show']);
+    Route::put('/preferences', [UserPreferenceController::class, 'update']);
 });
 
 // Public auth routes

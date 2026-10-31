@@ -86,4 +86,44 @@ class User extends Authenticatable
     {
         return $this->hasMany(Receipt::class);
     }
+
+    /**
+     * Get the goals for the user.
+     */
+    public function goals()
+    {
+        return $this->hasMany(Goal::class);
+    }
+
+    /**
+     * Get the budgets for the user.
+     */
+    public function budgets()
+    {
+        return $this->hasMany(Budget::class);
+    }
+
+    /**
+     * Get the notifications for the user.
+     */
+    public function notifications()
+    {
+        return $this->hasMany(Notification::class);
+    }
+
+    /**
+     * Get the user preferences.
+     */
+    public function preferences()
+    {
+        return $this->hasOne(UserPreference::class);
+    }
+
+    /**
+     * Get the activity logs for the user.
+     */
+    public function activityLogs()
+    {
+        return $this->hasMany(ActivityLog::class);
+    }
 }

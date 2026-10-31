@@ -19,34 +19,7 @@ class TestFactorySeeder extends Seeder
      */
     public function run(): void
     {
-        // Test User factory
-        $user = User::factory()->create([
-            'email' => 'test@factory.com'
-        ]);
-
-        // Test Source factory
-        $source = Source::factory()->create([
-            'user_id' => $user->id
-        ]);
-
-        // Test Category factory
-        $category = Category::factory()->create([
-            'user_id' => $user->id
-        ]);
-
-        // Test Movement factory
-        $movement = Movement::factory()->create([
-            'user_id' => $user->id,
-            'source_id' => $source->id,
-            'category_id' => $category->id
-        ]);
-
-        // Test Receipt factory
-        $receipt = Receipt::factory()->create([
-            'user_id' => $user->id
-        ]);
-
-        // Just to have some output
-        $this->command->info('Factory test completed successfully!');
+        // This seeder is intentionally disabled to avoid creating test users in a clean database.
+        $this->command?->info('Factory test seeder disabled.');
     }
 }

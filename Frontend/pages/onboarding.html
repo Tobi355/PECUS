@@ -25,41 +25,119 @@
                             </p>
                         </div>
 
-                        <progress class="w-100 mb-4" value="33" max="100"></progress>
-                        <p class="text-center text-muted small">Paso 1 de 3: Agregar tus fuentes</p>
+                        <!-- Progress Bar -->
+                        <div class="mb-4">
+                            <div class="d-flex justify-content-between mb-2">
+                                <span class="fw-bold" id="step-title">Paso 1 de 3: Agregar tus fuentes</span>
+                                <span class="text-muted small" id="step-percent">33%</span>
+                            </div>
+                            <progress class="w-100" id="onboarding-progress" value="33" max="100"></progress>
+                        </div>
 
                         <form id="onboarding-form">
-                            <div class="mb-4">
-                                <label for="onboarding-source-name" class="form-label">Nombre de la fuente</label>
-                                <input type="text" class="form-control" id="onboarding-source-name" placeholder="Ej: cuenta sueldo, tarjeta Visa, efectivo" required>
-                            </div>
-                            <div class="mb-4">
-                                <label for="onboarding-source-type" class="form-label">Tipo de fuente</label>
-                                <select class="form-select" id="onboarding-source-type" required>
-                                    <option value="">Selecciona un tipo</option>
-                                    <option value="BANK">Banco</option>
-                                    <option value="CREDIT_CARD">Tarjeta de crédito</option>
-                                    <option value="WALLET">Billetera virtual</option>
-                                    <option value="CASH">Efectivo</option>
-                                    <option value="OTHER">Otro</option>
-                                </select>
-                            </div>
-                            <div class="mb-4">
-                                <label for="onboarding-source-balance" class="form-label">Saldo inicial (ARS)</label>
-                                <input type="number" class="form-control" id="onboarding-source-balance" placeholder="0" min="0" step="0.01" required>
-                            </div>
-                            <div class="mb-4">
-                                <label for="onboarding-source-currency" class="form-label">Moneda</label>
-                                <select class="form-select" id="onboarding-source-currency" required>
-                                    <option value="ARS" selected>ARS (Peso argentino)</option>
-                                    <option value="USD">USD (Dólar estadounidense)</option>
-                                    <option value="EUR">EUR (Euro)</option>
-                                </select>
+                            <!-- Step 1: Sources -->
+                            <div class="onboarding-step" id="step-1" data-step="1">
+                                <h5 class="mb-4 text-center">Paso 1: Agregar una fuente</h5>
+                                <p class="text-muted text-center mb-4">Configurá tu primera cuenta, tarjeta o billetera.</p>
+
+                                <div class="mb-4">
+                                    <label for="onboarding-source-name" class="form-label">Nombre de la fuente</label>
+                                    <input type="text" class="form-control" id="onboarding-source-name" placeholder="Ej: cuenta sueldo, tarjeta Visa, efectivo" required>
+                                </div>
+                                <div class="mb-4">
+                                    <label for="onboarding-source-type" class="form-label">Tipo de fuente</label>
+                                    <select class="form-select" id="onboarding-source-type" required>
+                                        <option value="">Selecciona un tipo</option>
+                                        <option value="BANK">Banco</option>
+                                        <option value="CREDIT_CARD">Tarjeta de crédito</option>
+                                        <option value="WALLET">Billetera virtual</option>
+                                        <option value="CASH">Efectivo</option>
+                                        <option value="OTHER">Otro</option>
+                                    </select>
+                                </div>
+                                <div class="mb-4">
+                                    <label for="onboarding-source-balance" class="form-label">Saldo inicial (ARS)</label>
+                                    <input type="number" class="form-control" id="onboarding-source-balance" placeholder="0" min="0" step="0.01" required>
+                                </div>
+                                <div class="mb-4">
+                                    <label for="onboarding-source-currency" class="form-label">Moneda</label>
+                                    <select class="form-select" id="onboarding-source-currency" required>
+                                        <option value="ARS" selected>ARS (Peso argentino)</option>
+                                        <option value="USD">USD (Dólar estadounidense)</option>
+                                        <option value="EUR">EUR (Euro)</option>
+                                    </select>
+                                </div>
+
+                                <button type="button" class="btn btn-primary w-100 py-2" id="step1-next-btn">
+                                    Continuar
+                                </button>
                             </div>
 
-                            <button type="submit" class="btn btn-primary w-100 py-2">
-                                Continuar
-                            </button>
+                            <!-- Step 2: Categories -->
+                            <div class="onboarding-step d-none" id="step-2" data-step="2">
+                                <h5 class="mb-4 text-center">Paso 2: Categorías iniciales</h5>
+                                <p class="text-muted text-center mb-4">Seleccioná las categorías que querés usar para organizar tus gastos e ingresos.</p>
+
+                                <div class="mb-4">
+                                    <label class="form-label">Categorías de gastos</label>
+                                    <div class="row g-2" id="expense-categories-container">
+                                        <!-- Categories will be loaded here -->
+                                    </div>
+                                </div>
+                                <div class="mb-4">
+                                    <label class="form-label">Categorías de ingresos</label>
+                                    <div class="row g-2" id="income-categories-container">
+                                        <!-- Categories will be loaded here -->
+                                    </div>
+                                </div>
+
+                                <div class="d-flex gap-2">
+                                    <button type="button" class="btn btn-outline flex-grow-1" id="step2-prev-btn">Anterior</button>
+                                    <button type="button" class="btn btn-primary flex-grow-1" id="step2-next-btn">Continuar</button>
+                                </div>
+                            </div>
+
+                            <!-- Step 3: Goals & Preferences -->
+                            <div class="onboarding-step d-none" id="step-3" data-step="3">
+                                <h5 class="mb-4 text-center">Paso 3: Metas y preferencias</h5>
+                                <p class="text-muted text-center mb-4">Configurá tu primera meta de ahorro y preferencias básicas.</p>
+
+                                <div class="mb-4">
+                                    <label for="onboarding-goal-name" class="form-label">Nombre de la meta (opcional)</label>
+                                    <input type="text" class="form-control" id="onboarding-goal-name" placeholder="Ej: Viaje a Europa, Fondo de emergencia">
+                                </div>
+                                <div class="mb-4">
+                                    <label for="onboarding-goal-amount" class="form-label">Monto objetivo (ARS)</label>
+                                    <input type="number" class="form-control" id="onboarding-goal-amount" placeholder="0" min="0" step="0.01">
+                                </div>
+                                <div class="mb-4">
+                                    <label for="onboarding-goal-date" class="form-label">Fecha objetivo (opcional)</label>
+                                    <input type="date" class="form-control" id="onboarding-goal-date">
+                                </div>
+                                <hr>
+                                <div class="mb-4">
+                                    <h6 class="mb-3">Preferencias</h6>
+                                    <div class="form-check form-switch mb-3">
+                                        <input class="form-check-input" type="checkbox" id="onboarding-push-notifications" checked>
+                                        <label class="form-check-label" for="onboarding-push-notifications">Notificaciones push</label>
+                                    </div>
+                                    <div class="form-check form-switch mb-3">
+                                        <input class="form-check-input" type="checkbox" id="onboarding-email-notifications" checked>
+                                        <label class="form-check-label" for="onboarding-email-notifications">Notificaciones por email</label>
+                                    </div>
+                                    <div class="form-check form-switch mb-3">
+                                        <input class="form-check-input" type="checkbox" id="onboarding-dark-mode">
+                                        <label class="form-check-label" for="onboarding-dark-mode">Modo oscuro</label>
+                                    </div>
+                                </div>
+
+                                <div class="d-flex gap-2">
+                                    <button type="button" class="btn btn-outline flex-grow-1" id="step3-prev-btn">Anterior</button>
+                                    <button type="submit" class="btn btn-success flex-grow-1" id="step3-finish-btn">
+                                        <i class="me-2" data-lucide="check-circle"></i> Completar configuración
+                                    </button>
+                                </div>
+                            </div>
                         </form>
                     </div>
                 </div>

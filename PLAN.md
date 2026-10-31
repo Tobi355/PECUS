@@ -2,6 +2,8 @@
 
 Based on user priorities from pasted content:
 
+Leyenda: `[x]` funcionalidad completada; `[🟡]` funcionalidad en proceso.
+
 ## Prioridad A: núcleo financiero confiable
 - [x] Creación, visualización, edición y eliminación lógica de movimientos
 - [x] Ingresos y gastos manuales
@@ -70,3 +72,13 @@ Based on user priorities from pasted content:
 - [x] Prevención de confirmaciones duplicadas
 - [x] Registro de usuario y creación de categorías predeterminadas de forma consistente
 - [x] Consultas e índices razonables para las operaciones que realmente lo necesiten
+
+## Módulos adicionales incorporados
+- [x] Metas financieras con API y conexión desde el frontend
+- [x] Presupuestos por categoría con cálculo de gasto, límite y alertas
+- [x] Notificaciones con lectura individual, lectura masiva y eliminación
+- [x] Preferencias personales del usuario
+- [x] Análisis financiero con gráficos basados en datos reales
+- [x] Base de datos limpia por defecto, sin usuarios ni datos de demostración
+- [🟡] Asistente financiero: la interfaz existe, pero todavía no tiene respuestas ni integración
+- [🟡] Foto de perfil: la interfaz existe, pero la carga real todavía está pendiente
